@@ -27,8 +27,8 @@ export class CategoryModel {
   }
 
   static async getCategoryBySlug(slug: string): Promise<CategoryResponse | null> {
-    return await prisma.categories.findUnique({
-      where: { slug },
+    return await prisma.categories.findFirst({
+      where: { slug, deleted_at: null },
       select: {
         id: true,
         name: true,
@@ -40,6 +40,7 @@ export class CategoryModel {
 
   static async getAllCategories(): Promise<CategoryResponse[]> {
     return await prisma.categories.findMany({
+      where: { deleted_at: null },
       orderBy: { id: "asc" },
       select: {
         id: true,
@@ -51,8 +52,8 @@ export class CategoryModel {
   }
 
   static async getCategoriesById(id: number | string): Promise<CategoryResponse | null> {
-    return await prisma.categories.findUnique({
-      where: { id: Number(id) },
+    return await prisma.categories.findFirst({
+      where: { id: Number(id), deleted_at: null },
       select: {
         id: true,
         name: true,
@@ -63,8 +64,11 @@ export class CategoryModel {
   }
 
   static async deleteCategories(id: number | string): Promise<any> {
-    return await prisma.categories.delete({
+    return await prisma.categories.update({
       where: { id: Number(id) },
+      data: {
+        deleted_at: new Date(),
+      },
       select: { id: true },
     });
   }

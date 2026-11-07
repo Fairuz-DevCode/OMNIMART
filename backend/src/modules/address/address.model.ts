@@ -21,7 +21,7 @@ export class AddressModel {
 
   static async getAddressesByUserId(userId: number): Promise<AddressResponse[]> {
     return await prisma.addresses.findMany({
-      where: { user_id: userId },
+      where: { user_id: userId, deleted_at: null },
       orderBy: { id: "asc" },
     });
   }
@@ -31,6 +31,7 @@ export class AddressModel {
       where: {
         id: Number(addressId),
         user_id: userId,
+        deleted_at: null,
       },
     });
   }
@@ -41,7 +42,7 @@ export class AddressModel {
     { label, phone, street_address, city, postal_code, country }: UpdateAddressDTO
   ): Promise<AddressResponse | null> {
     const existing = await prisma.addresses.findFirst({
-      where: { id: Number(addressId), user_id: userId },
+      where: { id: Number(addressId), user_id: userId, deleted_at: null },
     });
     if (!existing) return null;
 
@@ -60,12 +61,14 @@ export class AddressModel {
 
   static async deleteAddress(addressId: number | string, userId: number): Promise<any> {
     const existing = await prisma.addresses.findFirst({
-      where: { id: Number(addressId), user_id: userId },
+      where: { id: Number(addressId), user_id: userId, deleted_at: null },
     });
     if (!existing) return null;
 
-    return await prisma.addresses.delete({
+    // Soft delete: tandai deleted_at agar hilang dari UI pembeli namun riwayat order tetap utuh
+    return await prisma.addresses.update({
       where: { id: Number(addressId) },
+      data: { deleted_at: new Date() },
     });
   }
 }

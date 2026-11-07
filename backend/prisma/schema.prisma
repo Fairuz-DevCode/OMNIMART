@@ -9,17 +9,19 @@ datasource db {
 }
 
 model addresses {
-  id             Int      @id @default(autoincrement())
+  id             Int       @id @default(autoincrement())
   user_id        Int
-  label          String   @db.VarChar
-  phone          String   @db.VarChar
+  label          String    @db.VarChar
+  phone          String    @db.VarChar
   street_address String
-  city           String   @db.VarChar
-  postal_code    String   @db.VarChar
-  country        String   @db.VarChar(255)
+  city           String    @db.VarChar
+  postal_code    String    @db.VarChar
+  country        String    @db.VarChar(255)
+  deleted_at     DateTime? @db.Timestamp(6)
   orders         orders[]
 
   @@index([user_id])
+  @@index([deleted_at])
 }
 
 model cart_items {
@@ -50,11 +52,13 @@ model categories {
   name             String       @db.VarChar
   slug             String       @unique @db.VarChar
   parent_id        Int?
+  deleted_at       DateTime?    @db.Timestamp(6)
   categories       categories?  @relation("categoriesTocategories", fields: [parent_id], references: [id], onDelete: SetNull)
   other_categories categories[] @relation("categoriesTocategories")
   products         products[]
 
   @@index([parent_id])
+  @@index([deleted_at])
 }
 
 model order_items {
@@ -126,11 +130,13 @@ model product_variants {
   product_id Int
   size       String       @db.VarChar
   stock      Int          @default(0)
+  deleted_at DateTime?    @db.Timestamp(6)
   cart_items cart_items[]
   products   products     @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@index([product_id])
   @@index([product_id, size])
+  @@index([deleted_at])
 }
 
 model products {

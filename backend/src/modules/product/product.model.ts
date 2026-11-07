@@ -125,6 +125,7 @@ export class ProductModel {
       where: { id: Number(id), deleted_at: null },
       include: {
         product_variants: {
+          where: { deleted_at: null },
           select: { id: true, size: true, stock: true },
         },
       },
@@ -186,8 +187,14 @@ export class ProductModel {
 
   static async deleteVariants(tx: any, productId: number | string): Promise<void> {
     const db = tx || prisma;
-    await db.product_variants.deleteMany({
-      where: { product_id: Number(productId) },
+    await db.product_variants.updateMany({
+      where: {
+        product_id: Number(productId),
+        deleted_at: null,
+      },
+      data: {
+        deleted_at: new Date(),
+      },
     });
   }
 
@@ -196,13 +203,17 @@ export class ProductModel {
       where: {
         slug,
         parent_id: parentId,
+        deleted_at: null,
       },
     });
   }
 
   static async getSubcategories(parentId: number): Promise<any[]> {
     return await prisma.categories.findMany({
-      where: { parent_id: parentId },
+      where: {
+        parent_id: parentId,
+        deleted_at: null,
+      },
       orderBy: { id: "asc" },
     });
   }
@@ -222,6 +233,7 @@ export class ProductModel {
       where: { slug, deleted_at: null },
       include: {
         product_variants: {
+          where: { deleted_at: null },
           select: { id: true, size: true, stock: true },
         },
       },
@@ -236,8 +248,11 @@ export class ProductModel {
   }
 
   static async getCategoriesById(id: number): Promise<any> {
-    return await prisma.categories.findUnique({
-      where: { id: Number(id) },
+    return await prisma.categories.findFirst({
+      where: {
+        id: Number(id),
+        deleted_at: null,
+      },
     });
   }
 }

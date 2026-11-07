@@ -107,8 +107,8 @@ export class CartModel {
 
   static async checkVariantStock(tx: any, variantId: number, _forUpdate: boolean = false): Promise<any> {
     const db = tx || prisma;
-    return await db.product_variants.findUnique({
-      where: { id: Number(variantId) },
+    return await db.product_variants.findFirst({
+      where: { id: Number(variantId), deleted_at: null },
       select: {
         id: true,
         product_id: true,

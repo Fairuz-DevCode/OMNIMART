@@ -1,6 +1,6 @@
 # 13. Soft Delete vs Hard Delete Implementation Guide
 
-Dokumen ini membedah perbedaan mendasar antara **Soft Delete** dan **Hard Delete**, bahaya fatal jika salah menerapkannya di e-commerce, matriks keputusan per entitas tabel, serta **implementasi nyata dan proteksi data di codebase project Nexa Streetwear**.
+Dokumen ini membedah perbedaan mendasar antara **Soft Delete** dan **Hard Delete**, bahaya fatal jika salah menerapkannya di e-commerce, logika pemfilteran `deleted_at` untuk Frontend/API, matriks keputusan per entitas tabel, serta **implementasi nyata dan proteksi data di codebase project Nexa Streetwear**.
 
 ---
 
@@ -17,101 +17,154 @@ Dokumen ini membedah perbedaan mendasar antara **Soft Delete** dan **Hard Delete
 
 ## 2. Mengapa Hard Delete Adalah Bencana Besar di Toko Online?
 
-Bayangkan toko streetwear Anda pernah menjual jaket *"Alpha Hoodie"* (ID: 10) kepada 50 pembeli bulan lalu. Riwayat pesanan mereka tersimpan di tabel `order_items` dengan `product_id = 10`.
+Bayangkan toko streetwear Anda pernah menjual jaket *"Alpha Hoodie"* (ID: 10) kepada 50 pembeli bulan lalu. Riwayat pesanan mereka tersimpan di tabel `order_items` dengan `product_id = 10` dan pengiriman merujuk ke `addresses.id = 5`.
 
-Jika admin toko menghapus jaket itu menggunakan **Hard Delete**:
-1. **Error Foreign Key Restrict:** PostgreSQL akan menolak penghapusan karena ID 10 masih terikat ke tabel `order_items`, memicu error sistem 500.
-2. **Bencana Cascade Delete:** Jika relasi dipaksa `CASCADE`, PostgreSQL akan **menghapus jaket itu beserta 50 riwayat pesanan pembeli tadi!** Laporan omzet toko, invoice customer, dan pembukuan akuntansi mendadak hilang dan rusak.
-3. **Audit & Retur Barang Gagal:** Saat pembeli ingin mengajukan retur atau komplain, data produk pada invoice sudah tidak ditemukan.
-
-> **Aturan Emas:** Data master (Produk, Pengguna, Pesanan) **WAJIB menggunakan Soft Delete**. Hard delete hanya diperbolehkan untuk data sementara (*transient data*).
+Jika admin toko atau pembeli menghapus data menggunakan **Hard Delete**:
+1. **Error Foreign Key Restrict:** PostgreSQL akan menolak penghapusan karena ID masih terikat ke tabel `orders` / `order_items`, memicu error sistem 500 dan memblokir aksi user.
+2. **Bencana Cascade Delete:** Jika relasi dipaksa `CASCADE`, PostgreSQL akan **menghapus produk/alamat tersebut beserta seluruh riwayat pesanan pembeli tadi!** Laporan omzet toko, invoice customer, dan pembukuan akuntansi mendadak hilang dan rusak.
+3. **Audit & Retur Barang Gagal:** Saat pembeli ingin mengajukan retur atau komplain, data produk/alamat pada invoice sudah musnah dari database.
 
 ---
 
-## 3. Matriks Keputusan: Kapan Pakai Soft vs Hard Delete di Project Ini?
+## 3. Filosofi & Logika Soft Delete di Seluruh Sistem
+
+Prinsip kerja Soft Delete yang diterapkan di project ini:
+1. **Database Tetap Utuh:** Tidak ada pemanggilan SQL `DELETE FROM` untuk data bisnis utama. Aksi "hapus" oleh admin atau user diubah menjadi:
+   ```sql
+   UPDATE table SET deleted_at = NOW() WHERE id = :id;
+   ```
+2. **Penyaringan di API & Frontend:**
+   - **Tampilkan jika:** `deleted_at IS NULL` (data aktif).
+   - **Sembunyikan jika:** `deleted_at IS NOT NULL` (data sudah dihapus).
+   - Di sisi Frontend / UI: Data langsung hilang seketika seolah-olah berhasil dihapus, memberikan UX yang mulus tanpa memblokir pengguna.
+   - Di sisi Database: Data tetap ada selamanya sehingga laporan keuangan, faktur lama, dan relasi transaksi masa lalu tidak pernah terputus.
+
+---
+
+## 4. Matriks Keputusan: Kapan Pakai Soft vs Hard Delete di Project Ini?
 
 | Entitas Tabel | Metode yang Diterapkan | Alasan Teknis & Bisnis |
 |:---|:---:|:---|
-| **`products`** | **Soft Delete** | Terikat ke riwayat transaksi belanja pembeli (`order_items`). |
-| **`users`** | **Soft Delete** | Kebutuhan audit hukum, kepatuhan GDPR, dan riwayat pesanan. |
+| **`products`** | **Soft Delete** | Terikat ke riwayat transaksi belanja pembeli (`order_items`). Jika produk dihapus, cukup set `deleted_at = NOW()`. |
+| **`product_variants`** | **Soft Delete** | Varian ukuran/stok terikat ke pesanan lama. Saat varian/produk dihapus, varian ditandai `deleted_at = NOW()`. |
+| **`categories`** | **Soft Delete** | Kategori terikat ke produk. Kategori yang dihapus tidak boleh menghapus produk lama secara fisik. |
+| **`addresses`** | **Soft Delete** | Pengguna bebas menghapus alamat dari buku alamat (hilang di UI frontend), sementara riwayat transaksi belanja masa lalu di tabel `orders` tetap aman. |
+| **`users`** | **Soft Delete** | Kebutuhan audit hukum, riwayat pesanan, dan kepatuhan data. |
 | **`orders`** | **Status Change** (Bukan Delete) | Pesanan batal cukup ganti status `status = 'cancelled'`. Data keuangan tidak boleh dihapus. |
-| **`addresses`** | **Conditional Hard Delete** | Alamat hanya boleh di-hard delete jika **belum pernah dipakai transaksi**. Jika sudah pernah dipakai order, sistem memproteksi integritasnya. |
 | **`cart_items`** | **Hard Delete** | Keranjang belanja adalah data sementara (*transient*). Item yang dibuang atau di-clear saat checkout wajib dihapus fisik agar tidak memicu *table bloat*. |
 | **`refresh_tokens`** | **Hard Delete** | Token JWT yang sudah logout / kadaluwarsa wajib dihapus permanen demi keamanan dan performa query auth. |
 | **`wishlists`** | **Hard Delete** | Saat user menekan tombol unlike/unwishlist, baris relasi dilepas permanen dari database. |
 
 ---
 
-## 4. Implementasi Nyata di Codebase Project Ini
+## 5. Implementasi Nyata di Codebase Project Ini
 
-### A. Kolom & Indeks di Skema Prisma ([`backend/prisma/schema.prisma`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/prisma/schema.prisma#L143-L158))
-Tabel `products` dilengkapi kolom `deleted_at` dan indeks performa khusus:
+### A. Kolom & Indeks di Skema Prisma ([`backend/prisma/schema.prisma`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/prisma/schema.prisma))
 
-```prisma
-model products {
-  id               Int                @id @default(autoincrement())
-  ...
-  deleted_at       DateTime?          // Kolom penanda soft delete
-  category_id      Int
+Kolom `deleted_at` beserta B-Tree Index telah dipasang pada semua entitas terkait:
 
-  @@index([deleted_at])              // Indeks untuk filter cepat
-  @@index([category_id, deleted_at]) // Indeks komposit katalog aktif
-}
-```
+1. **Tabel `products`:**
+   ```prisma
+   model products {
+     id          Int       @id @default(autoincrement())
+     ...
+     deleted_at  DateTime? @db.Timestamp(6)
+     category_id Int
+
+     @@index([deleted_at])
+     @@index([category_id, deleted_at])
+   }
+   ```
+
+2. **Tabel `product_variants`:**
+   ```prisma
+   model product_variants {
+     id         Int       @id @default(autoincrement())
+     product_id Int
+     size       String    @db.VarChar
+     stock      Int       @default(0)
+     deleted_at DateTime? @db.Timestamp(6)
+
+     @@index([product_id])
+     @@index([deleted_at])
+   }
+   ```
+
+3. **Tabel `categories`:**
+   ```prisma
+   model categories {
+     id         Int       @id @default(autoincrement())
+     name       String    @db.VarChar
+     slug       String    @unique @db.VarChar
+     parent_id  Int?
+     deleted_at DateTime? @db.Timestamp(6)
+
+     @@index([parent_id])
+     @@index([deleted_at])
+   }
+   ```
+
+4. **Tabel `addresses`:**
+   ```prisma
+   model addresses {
+     id         Int       @id @default(autoincrement())
+     user_id    Int
+     ...
+     deleted_at DateTime? @db.Timestamp(6)
+
+     @@index([user_id])
+     @@index([deleted_at])
+   }
+   ```
 
 ---
 
-### B. Soft Delete Murni di Service & Model Produk
+### B. Soft Delete Alamat Pengiriman ([`address.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/address/address.model.ts#L62-L73))
 
-1. **Model Soft Delete di [`backend/src/modules/product/product.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/product/product.model.ts#L176-L185):**
+Pengguna bebas menghapus alamat dari buku alamat mereka kapan saja tanpa batasan:
+
+```typescript
+static async deleteAddress(addressId: number | string, userId: number): Promise<any> {
+  const existing = await prisma.addresses.findFirst({
+    where: { id: Number(addressId), user_id: userId, deleted_at: null },
+  });
+  if (!existing) return null;
+
+  // Soft delete: tandai deleted_at agar hilang dari UI pembeli namun riwayat order tetap utuh
+  return await prisma.addresses.update({
+    where: { id: Number(addressId) },
+    data: { deleted_at: new Date() },
+  });
+}
+```
+
+* **Penyaringan di API/Frontend:**
+  Saat mengambil daftar alamat pengguna (`getAddressesByUserId`), query otomatis menyaring:
+  ```typescript
+  where: { user_id: userId, deleted_at: null }
+  ```
+  Alamat yang sudah dihapus langsung hilang dari layar pembeli di frontend. Namun di database, record fisik alamat tersebut tetap ada sehingga relasi `orders.address_id` tidak pernah rusak atau error Foreign Key!
+
+---
+
+### C. Soft Delete Kategori ([`category.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/category/category.model.ts#L41-L71))
+
+1. **Penghapusan Kategori:**
    ```typescript
-   static async deleteProduct(tx: any, productId: number | string): Promise<any> {
-     const db = tx || prisma;
-     return await db.products.update({
-       where: { id: Number(productId) },
-       data: {
-         deleted_at: new Date(), // Stempel waktu saat ini
-       },
+   static async deleteCategories(id: number | string): Promise<any> {
+     return await prisma.categories.update({
+       where: { id: Number(id) },
+       data: { deleted_at: new Date() },
        select: { id: true },
      });
    }
    ```
-
-2. **Integritas Varian Terjaga di [`backend/src/modules/product/product.service.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/product/product.service.ts#L79-L87):**
+2. **Penyaringan Kategori Aktif:**
    ```typescript
-   static async deleteProduct(productId: number | string): Promise<boolean> {
-     // Soft delete murni: tidak menghapus varian fisik agar invoice order masa lalu tetap valid
-     const deletedProduct = await ProductModel.deleteProduct(null, productId);
-     if (!deletedProduct) {
-       throw new AppError("Product not found", 404);
-     }
-     return true;
-   }
-   ```
-
----
-
-### C. Proteksi Filter di Seluruh Query Katalog
-
-Seluruh query pengambilan produk secara otomatis mengabaikan produk yang sudah di-soft delete:
-
-1. **Katalog & Pagination di [`product.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/product/product.model.ts#L50-L65):**
-   ```typescript
-   where: { deleted_at: null } // Hanya tampilkan produk aktif
-   ```
-
-2. **Detail Produk by ID & Slug di [`product.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/product/product.model.ts#L123-L138):**
-   ```typescript
-   static async getProductById(id: number | string): Promise<ProductResponse | null> {
-     return await prisma.products.findFirst({
-       where: { id: Number(id), deleted_at: null }, // Mencegah akses ke produk terhapus
-       ...
-     });
-   }
-
-   static async getProductBySlug(slug: string): Promise<ProductResponse | null> {
-     return await prisma.products.findFirst({
-       where: { slug, deleted_at: null }, // Return 404 jika produk sudah diarsipkan
+   static async getAllCategories(): Promise<CategoryResponse[]> {
+     return await prisma.categories.findMany({
+       where: { deleted_at: null },
+       orderBy: { id: "asc" },
        ...
      });
    }
@@ -119,37 +172,79 @@ Seluruh query pengambilan produk secara otomatis mengabaikan produk yang sudah d
 
 ---
 
-### D. Proteksi Integritas Alamat Pengiriman di [`backend/src/modules/address/address.service.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/address/address.service.ts#L29-L43)
+### D. Soft Delete Terpadu pada Produk & Varian ([`product.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/product/product.model.ts#L176-L193) & [`product.service.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/product/product.service.ts#L79-L89))
 
-Untuk mencegah error *Foreign Key Restrict* saat pembeli menghapus alamat:
+Saat admin menghapus sebuah produk:
+1. Baik produk maupun seluruh varian ukurannya di-update menjadi `deleted_at = NOW()` di dalam satu transaksi atomik.
+2. Query katalog, pencarian, detail produk, dan pemesanan hanya memuat data dengan `deleted_at IS NULL`.
+
 ```typescript
-static async deleteAddress(addressId: number | string, userId: number): Promise<boolean> {
-  const existingAddress = await AddressModel.getAddressByIdAndUserId(addressId, userId);
-  if (!existingAddress) {
-    throw new AppError("Address not found", 404);
-  }
-
-  // Cek apakah alamat ini pernah dipakai untuk transaksi checkout pesanan
-  const orderUsingAddress = await prisma.orders.findFirst({
-    where: { address_id: Number(addressId) },
-    select: { id: true },
+// Di product.service.ts
+static async deleteProduct(productId: number | string): Promise<boolean> {
+  await prisma.$transaction(async (tx) => {
+    // 1. Soft delete seluruh varian milik produk ini
+    await ProductModel.deleteVariants(tx, productId);
+    // 2. Soft delete produk itu sendiri
+    const deletedProduct = await ProductModel.deleteProduct(tx, productId);
+    if (!deletedProduct) throw new AppError("Product not found", 404);
   });
-
-  if (orderUsingAddress) {
-    throw new AppError("Alamat tidak dapat dihapus karena terikat dengan riwayat pesanan yang sudah ada.", 400);
-  }
-
-  // Jika belum pernah dipakai belanja, aman di-hard delete fisik
-  await AddressModel.deleteAddress(addressId, userId);
   return true;
+}
+
+// Di product.model.ts
+static async deleteVariants(tx: any, productId: number | string): Promise<void> {
+  const db = tx || prisma;
+  await db.product_variants.updateMany({
+    where: { product_id: Number(productId), deleted_at: null },
+    data: { deleted_at: new Date() },
+  });
 }
 ```
 
+* **Penyaringan Otomatis pada Relasi Varian ([`product.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/product/product.model.ts#L123-L138)):**
+  ```typescript
+  static async getProductById(id: number | string): Promise<ProductResponse | null> {
+    const p = await prisma.products.findFirst({
+      where: { id: Number(id), deleted_at: null },
+      include: {
+        product_variants: {
+          where: { deleted_at: null }, // Varian yang di-soft delete tidak ikut tampil
+          select: { id: true, size: true, stock: true },
+        },
+      },
+    });
+    ...
+  }
+  ```
+
 ---
 
-## 5. Rangkuman Best Practice
+### E. Pencegahan Checkout & Cart untuk Item Terhapus
+
+1. **Validasi Keranjang Belanja ([`cart.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/cart/cart.model.ts#L108-L119)):**
+   ```typescript
+   static async checkVariantStock(tx: any, variantId: number): Promise<any> {
+     const db = tx || prisma;
+     return await db.product_variants.findFirst({
+       where: { id: Number(variantId), deleted_at: null },
+       select: { id: true, product_id: true, size: true, stock: true },
+     });
+   }
+   ```
+2. **Validasi Checkout Order ([`order.service.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/order/order.service.ts#L42-L48)):**
+   ```typescript
+   const variants = await tx.product_variants.findMany({
+     where: { id: { in: variantIds }, deleted_at: null },
+     select: { id: true, product_id: true, size: true, stock: true },
+   });
+   ```
+   Jika varian atau produk telah di-soft delete saat pembeli mencoba checkout, sistem langsung menolak pesanan dengan aman.
+
+---
+
+## 6. Rangkuman Best Practice
 
 1. **Gunakan Kolom `deleted_at DateTime?`:** Memberikan info ganda (apakah terhapus + kapan tepatnya dihapus untuk kebutuhan audit log).
-2. **Pasang Indeks pada `deleted_at`:** Selalu sertakan `@@index([deleted_at])` atau indeks komposit `@@index([category_id, deleted_at])` agar filter `WHERE deleted_at IS NULL` tetap instan.
-3. **Jangan Hapus Anak Relasi saat Soft Delete Induk:** Membiarkan varian fisik tetap ada di database memastikan histori transaksi masa lalu tetap valid.
-4. **Hard Delete Hanya untuk Data Sementara:** Terapkan pembersihan fisik untuk keranjang belanja (`cart_items`) dan token otentikasi kadaluwarsa (`refresh_tokens`).
+2. **Pasang Indeks pada `deleted_at`:** Selalu sertakan `@@index([deleted_at])` atau indeks komposit `@@index([category_id, deleted_at])` agar filter `WHERE deleted_at IS NULL` tetap berkecepatan B-Tree instan.
+3. **Penyaringan Konsisten (Filter `deleted_at IS NULL`):** Frontend dan API hanya perlu memeriksa apakah `deleted_at` bernilai `null` untuk menampilkannya ke layar.
+4. **Hard Delete Hanya untuk Data Sementara:** Terapkan pembersihan fisik hanya untuk keranjang belanja (`cart_items`) dan token otentikasi kadaluwarsa (`refresh_tokens`).

@@ -41,7 +41,10 @@ export class OrderServices {
       // Optimasi N+1: Ambil semua data varian sekaligus dalam 1 query batch (WHERE id IN (...))
       const variantIds = sortedCartItems.map((item) => item.product_variant_id);
       const variants = await tx.product_variants.findMany({
-        where: { id: { in: variantIds } },
+        where: {
+          id: { in: variantIds },
+          deleted_at: null,
+        },
         select: { id: true, product_id: true, size: true, stock: true },
       });
       const variantMap = new Map<number, any>(variants.map((v: any) => [v.id, v]));

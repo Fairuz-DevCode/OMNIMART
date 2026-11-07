@@ -33,16 +33,8 @@ export class AddressServices {
       throw new AppError("Address not found", 404);
     }
 
-    // Proteksi Integritas: Jangan hapus alamat fisik jika sudah pernah digunakan dalam pesanan
-    const orderUsingAddress = await prisma.orders.findFirst({
-      where: { address_id: Number(addressId) },
-      select: { id: true },
-    });
-
-    if (orderUsingAddress) {
-      throw new AppError("Alamat tidak dapat dihapus karena terikat dengan riwayat pesanan yang sudah ada.", 400);
-    }
-
+    // Soft delete: tandai deleted_at sehingga langsung hilang dari buku alamat pembeli di frontend,
+    // sementara integritas transaksi belanja masa lalu di tabel orders tetap terlindungi secara aman.
     await AddressModel.deleteAddress(addressId, userId);
     return true;
   }

@@ -77,12 +77,15 @@ export class ProductServices {
   }
 
   static async deleteProduct(productId: number | string): Promise<boolean> {
-    // Soft Delete murni: menandai produk dengan deleted_at tanpa merusak integritas varian fisik
-    const deletedProduct = await ProductModel.deleteProduct(null, productId);
-
-    if (!deletedProduct) {
-      throw new AppError("Product not found", 404);
-    }
+    // Soft Delete murni: menandai produk dan variannya dengan deleted_at = NOW()
+    // Data di database tidak pernah dihapus fisik, riwayat transaksi order masa lalu tetap utuh.
+    await prisma.$transaction(async (tx) => {
+      await ProductModel.deleteVariants(tx, productId);
+      const deletedProduct = await ProductModel.deleteProduct(tx, productId);
+      if (!deletedProduct) {
+        throw new AppError("Product not found", 404);
+      }
+    });
 
     return true;
   }
@@ -94,7 +97,10 @@ export class ProductServices {
 
     // Optimasi N+1: Ambil semua kategori kandidat sekaligus dalam 1 query batch (WHERE slug IN (...))
     const matchingCategories = await prisma.categories.findMany({
-      where: { slug: { in: slugPathArray } },
+      where: {
+        slug: { in: slugPathArray },
+        deleted_at: null,
+      },
     });
     const categoryBySlug = new Map(matchingCategories.map((c) => [c.slug, c]));
 
