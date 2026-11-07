@@ -1,87 +1,174 @@
 # 10. Deadlock & Race Condition (Stok Minus / Overselling)
 
-## 1. Masalah yang Terjadi
-Pada aplikasi e-commerce berskala tinggi, terutama saat **Flash Sale** atau **Rilis Sepatu Terbatas (Limited Drop)**, dua masalah konkurensi database ini sering terjadi:
-
-### A. Race Condition (Overselling / Stok Minus)
-Terjadi ketika dua atau lebih pembeli menekan tombol *"Checkout / Bayar"* di milidetik yang sama pada barang yang stoknya tersisa 1:
-```text
-[ Database: Stok Sepatu = 1 ]
-   │
-   ├─► User A: Cek stok -> "Ada 1" (Lolos)
-   ├─► User B: Cek stok -> "Ada 1" (Lolos)
-   │
-   ├─► User A: Potong stok (1 - 1 = 0) -> Sukses bayar
-   └─► User B: Potong stok (0 - 1 = -1) -> Sukses bayar juga (BENCANA STOK MINUS!)
-```
-**Dampaknya:** Toko menjual barang yang fisiknya tidak ada di gudang, merugikan reputasi bisnis dan memaksa pembatalan pesanan sepihak.
-
-### B. Deadlock (Saling Sandera Antar Transaksi)
-Terjadi ketika dua transaksi concurrent mengunci baris data yang sama tetapi dengan urutan terbalik:
-* **User A:** Checkout Sepatu (ID: 10) lalu Jaket (ID: 20).
-* **User B:** Checkout Jaket (ID: 20) lalu Sepatu (ID: 10).
-
-```text
-Waktu   | Transaksi User A            | Transaksi User B
-────────┼─────────────────────────────┼─────────────────────────────
-Detik 1 │ Lock Sepatu ID: 10 (Sukses) │ Lock Jaket ID: 20 (Sukses)
-Detik 2 │ Mau lock Jaket ID: 20...    │ Mau lock Sepatu ID: 10...
-        │ (Menunggu User B selesai)   │ (Menunggu User A selesai)
-────────┴─────────────────────────────┴─────────────────────────────
-HASIL: KEDUA TRANSAKSI SALING KUNCI (DEADLOCK)!
-```
-PostgreSQL akan mendeteksi kebuntuan ini dan membatalkan paksa salah satu transaksi dengan error:  
-`ERROR: 40P01: deadlock detected`.
+Dokumen ini membedah secara mendalam dua masalah konkurensi database paling krusial di e-commerce, bagaimana mekanismenya di balik layar, simulasi milidetik, jebakan kodingan, serta arsitektur solusi yang diterapkan di project ini.
 
 ---
 
-## 2. Solusi Best Practice
+## 1. Deadlock (Saling Sandera Kunci Antar Transaksi)
 
-| Masalah | Solusi Best Practice | Mekanisme Kerja |
-|:---|:---|:---|
-| **Deadlock** | **Consistent Lock Ordering** | Seluruh transaksi wajib mengurutkan data (*sort by ID*) sebelum melakukan penguncian/update baris. |
-| **Race Condition** | **Conditional Atomic Decrement** | Potong stok langsung di SQL dengan kondisi `WHERE stock >= quantity`. |
-| **Race Condition** | **Database Check Constraint** | Pasang `CHECK (stock >= 0)` di level database engine sebagai benteng terakhir. |
+### A. Kapan Momen Saling Mengunci Ini Terjadi?
+Database PostgreSQL menerapkan aturan keamanan:
+> **Row-Level Exclusive Lock:** Setiap kali ada transaksi yang sedang mengubah baris data (`UPDATE` / `DELETE`), baris tersebut **otomatis dikunci eksklusif** oleh database sampai transaksi selesai (`COMMIT` atau `ROLLBACK`). Transaksi lain yang ingin mengubah baris yang sama **wajib mengantre**.
+
+**Deadlock terjadi ketika dua transaksi sama-sama berjalan di milidetik yang sama, dan masing-masing perlu mengubah lebih dari satu baris data, tetapi urutannya terbalik.**
 
 ---
 
-## 3. Implementasi di Project Ini
+### B. Simulasi Nyata: Bagaimana Mereka Saling Mengunci?
+Misalkan ada event Flash Sale di toko streetwear Nexa. Dua pembeli checkout dua barang yang sama:
+* **Barang X:** Sepatu Sneakers (ID: 10)
+* **Barang Y:** Jaket Denim (ID: 20)
 
-### A. Pencegahan Deadlock via Sorting di [`order.service.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/order/order.service.ts#L34-L37)
-Sebelum transaksi checkout mengeksekusi operasi database, seluruh item di keranjang belanja diurutkan berdasarkan `product_variant_id` secara menaik:
+Pembeli memasukkan barang ke keranjang belanja dengan urutan berbeda:
+* **Pembeli A:** Sepatu dulu (10), baru Jaket (20).
+* **Pembeli B:** Jaket dulu (20), baru Sepatu (10).
+
+Keduanya menekan tombol *"Bayar"* bersamaan:
+
+```text
+Milidetik  │ Transaksi Pembeli A                      │ Transaksi Pembeli B
+───────────┼──────────────────────────────────────────┼──────────────────────────────────────────
+ms 01      │ UPDATE product_variants (ID: 10)         │ UPDATE product_variants (ID: 20)
+           │ 🔒 Sepatu (ID: 10) DIKUNCI Pembeli A!    │ 🔒 Jaket (ID: 20) DIKUNCI Pembeli B!
+           │                                          │
+ms 02      │ Mau lanjut UPDATE Jaket (ID: 20):        │ Mau lanjut UPDATE Sepatu (ID: 10):
+           │ "Database, tolong potong Jaket (20)!"    │ "Database, tolong potong Sepatu (10)!"
+           │                                          │
+           │ DB: "Tunggu Pembeli A! Jaket (20) lagi   │ DB: "Tunggu Pembeli B! Sepatu (10) lagi 
+           │ dikunci oleh B. Kamu harus antre!"       │ dikunci oleh A. Kamu harus antre!"
+───────────┼──────────────────────────────────────────┼──────────────────────────────────────────
+ms 03      │ Pembeli A BENGONG MENUNGGU Pembeli B...  │ Pembeli B BENGONG MENUNGGU Pembeli A...
+(Macet     │ (A tidak bisa commit sebelum dapat 20)   │ (B tidak bisa commit sebelum dapat 10)
+ Total)    │                                          │
+```
+
+**Lingkaran Setan (*Circular Wait*):**
+* Pembeli A menolak melepas kunci Sepatu (10) sebelum berhasil mengubah Jaket (20).
+* Pembeli B menolak melepas kunci Jaket (20) sebelum berhasil mengubah Sepatu (10).
+* Keduanya saling sandera dan membeku (*hang*) selamanya!
+
+**Tindakan PostgreSQL:**
+Detektor internal PostgreSQL (*Deadlock Detector*) mendeteksi siklus saling tunggu ini, lalu **membunuh paksa salah satu transaksi secara acak**:
+```text
+ERROR: 40P01: deadlock detected
+DETAIL: Process 12345 waits for ExclusiveLock on tuple (0, 10); blocked by process 12346.
+Process 12346 waits for ExclusiveLock on tuple (0, 20); blocked by process 12345.
+```
+Salah satu pembeli tiba-tiba gagal bayar dengan pesan error tanpa tahu apa penyebabnya.
+
+---
+
+### C. Solusi di Project Ini: Consistent Lock Ordering (Sorting)
+Di [`backend/src/modules/order/order.service.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/order/order.service.ts#L34-L37):
+
+Sebelum mengeksekusi operasi database di dalam `$transaction`, seluruh item keranjang belanja **wajib disortir berdasarkan ID secara menaik**:
 
 ```typescript
 const result = await prisma.$transaction(async (tx) => {
-  // ATURAN ANTI-DEADLOCK:
-  // Selalu urutkan item berdasarkan ID agar urutan penguncian baris konsisten
+  // ATURAN EMAS ANTI-DEADLOCK:
+  // Mengurutkan item dari ID kecil ke besar
   const sortedCartItems = [...cartItems].sort(
     (a, b) => a.product_variant_id - b.product_variant_id
   );
 
-  // Seluruh proses validasi dan pemotongan stok mengikuti urutan terurut ini
-  ...
+  // Seluruh update baris mengikuti urutan terurut ini:
+  for (const item of sortedCartItems) {
+    await OrderModel.deductVariantStock(tx, item.product_variant_id, item.quantity);
+  }
+});
 ```
-* **Hasil:** Semua transaksi concurrent (User A, User B, User C) akan mengunci baris varian dengan urutan identik (ID kecil ke besar). Siklus saling sandera (*circular wait*) musnah 100%.
+
+#### Simulasi Setelah Di-Sort (Bebas Deadlock):
+* Pembeli A mengunci: **ID 10 $\to$ ID 20**.
+* Pembeli B **JUGA DIPAKSA** mengunci: **ID 10 $\to$ ID 20**.
+
+```text
+Milidetik  │ Transaksi Pembeli A                     │ Transaksi Pembeli B
+───────────┼─────────────────────────────────────────┼─────────────────────────────────────────
+ms 01      │ Mau kunci Sepatu (ID: 10)               │ Mau kunci Sepatu (ID: 10) juga!
+           │ 🔒 Sepatu (10) berhasil didapat A!      │ ⏳ B antre dengan tertib di belakang A.
+           │                                         │
+ms 02      │ Lanjut kunci Jaket (ID: 20)             │ (B masih sabar menunggu giliran Sepatu)
+           │ 🔒 Jaket (20) berhasil didapat A!       │
+           │                                         │
+ms 03      │ Transaksi A SELESAI (COMMIT).           │
+           │ Kunci Sepatu & Jaket DILEPAS semua.     │
+           │                                         │
+ms 04      │                                         │ Giliran B masuk:
+           │                                         │ 🔒 B kunci Sepatu (10) -> Sukses
+           │                                         │ 🔒 B kunci Jaket (20)  -> Sukses
+           │                                         │ Transaksi B SELESAI!
+```
+**Hasil:** Siklus saling sandera musnah 100%. Pembeli B hanya mengantre beberapa milidetik dan kedua transaksi berhasil diproses dengan mulus.
 
 ---
 
-### B. Pencegahan Race Condition via Conditional Atomic Decrement di [`order.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/order/order.model.ts#L53-L68)
-Pemotongan stok tidak mengandalkan nilai yang dibaca sebelumnya di memori, melainkan langsung diverifikasi secara atomik saat *row lock* diperoleh:
+## 2. Race Condition (Overselling / Stok Minus)
+
+### A. Jebakan Kodingan Pemula (Kenapa Stok Bisa Minus?)
+Banyak developer membuat kode checkout seperti ini:
+
+```typescript
+// ❌ CONTOH KODINGAN SALAH:
+
+// 1. Baca data dari database ke memori JavaScript
+const variant = await db.product_variants.findUnique({ where: { id: 10 } });
+
+// 2. Cek di if statement
+if (variant.stock >= 1) {
+  // 3. Kurangi di variabel memori JS
+  const sisaStok = variant.stock - 1;
+
+  // 4. Update database dengan menimpa nilai sisaStok tadi
+  await db.product_variants.update({
+    where: { id: 10 },
+    data: { stock: sisaStok } // 💥 MENIMPA DENGAN NILAI USANG!
+  });
+}
+```
+
+**Kenapa Cara di Atas Rusak Saat Stok = 1?**
+1. **User A** membaca stok = **1** $\to$ lolos `if (1 >= 1)`.
+2. Tepat di milidetik yang sama, **User B** membaca stok = **1** $\to$ lolos `if (1 >= 1)` juga!
+3. User A menghitung `1 - 1 = 0` $\to$ simpan `stock = 0`. Sukses bayar!
+4. User B menghitung menggunakan angka `1` yang tadi dibaca $\to$ User B simpan `stock = 0` (atau `0 - 1 = -1`). Sukses bayar juga!
+5. **Dua pasang sepatu terjual, padahal stok fisik di gudang cuma ada 1 pasang (Overselling)!**
+
+---
+
+### B. Tiga Lapis Pertahanan di Project Ini
+
+Untuk menjamin stok tidak pernah minus dalam kondisi ekstrem sekalipun, project ini menerapkan 3 lapis perlindungan:
+
+#### Lapis 1: Atomic Database Decrement (Bukan Hitung di JS)
+Perhitungan stok diserahkan langsung ke mesin PostgreSQL menggunakan operator `decrement`:
+```typescript
+data: {
+  stock: { decrement: quantity } // SQL: "SET stock = stock - quantity"
+}
+```
+Mesin PostgreSQL mengeksekusi operasi aritmatika ini secara atomik (tidak bisa disela proses lain).
+
+#### Lapis 2: Conditional Atomic Decrement di [`order.model.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/order/order.model.ts#L53-L68)
+Meskipun atomik, jika stok tersisa 0 lalu di-decrement 1, nilainya tetap bisa menjadi `-1`.  
+Maka kita tambahkan **kondisi penjaga gawang (*Guard Condition*)** di dalam klausa `where`:
 
 ```typescript
 static async deductVariantStock(tx: any, variantId: number, quantity: number): Promise<any> {
   const db = tx || prisma;
+  
+  // KUNCI UTAMA:
   const result = await db.product_variants.updateMany({
     where: {
       id: Number(variantId),
-      stock: { gte: quantity }, // PROTEKSI: Pastikan stok >= quantity saat row lock aktif
+      stock: { gte: quantity }, // gte = Greater Than or Equal (Hanya update jika stok cukup)
     },
     data: {
-      stock: { decrement: quantity }, // Dieksekusi atomik: "stock = stock - quantity"
+      stock: { decrement: quantity },
     },
   });
 
-  // Jika stok mendadak habis dibeli user lain di milidetik yang sama:
+  // Jika barang baru saja habis dibeli orang lain milidetik lalu:
   if (result.count === 0) {
     throw new AppError("Stock is insufficient or already depleted by another transaction", 400);
   }
@@ -89,16 +176,49 @@ static async deductVariantStock(tx: any, variantId: number, quantity: number): P
   return result;
 }
 ```
-* **Hasil:** Jika 2 user berebut 1 stok terakhir:
-  * User 1 memperoleh lock $\to$ `stock >= 1` valid $\to$ stok dipotong menjadi 0 (`count = 1`).
-  * User 2 menunggu antrean lock $\to$ saat giliran tiba, `stock >= 1` sudah salah $\to$ `count = 0` $\to$ Transaksi User 2 otomatis di-rollback tanpa menyisakan stok minus.
 
----
+#### Simulasi Milidetik Saat Stok = 1:
+```text
+Database: Stok Sepatu = 1
+─────────────────────────────────────────────────────────────────────────────
+Milidetik 01:
+User A dan User B sama-sama mengeksekusi:
+UPDATE product_variants SET stock = stock - 1 WHERE id = 10 AND stock >= 1;
 
-### C. Benteng Terakhir: Check Constraint PostgreSQL
-Di level mesin PostgreSQL, tabel `product_variants` dipasangi integritas data:
+Milidetik 02:
+User A memperoleh giliran pertama:
+• PostgreSQL verifikasi: "Apakah stok >= 1?" -> YA! (Stok saat ini 1).
+• Stok dipotong dari 1 menjadi 0.
+• Hasil: count = 1 -> Sukses! Pesanan User A diproses.
+
+Milidetik 03:
+User B memperoleh giliran berikutnya:
+• PostgreSQL verifikasi: "Apakah stok >= 1?" -> TIDAK! (Stok saat ini sudah 0).
+• PostgreSQL TIDAK MENGURANGI APAPUN!
+• Hasil: count = 0 (Gagal update).
+• Blok if (result.count === 0) TERPICU!
+• Transaksi User B langsung di-rollback otomatis dan melempar pesan:
+  "Stock is insufficient or already depleted by another transaction".
+─────────────────────────────────────────────────────────────────────────────
+HASIL AKHIR:
+Stok tetap 0 (TIDAK PERNAH MINUS).
+Barang hanya terjual ke User A, pesanan User B ditolak dengan aman.
+```
+
+#### Lapis 3: Benteng Terakhir di Mesin PostgreSQL (Check Constraint)
+Sebagai perlindungan mutlak jika ada query liar atau bug di masa depan, tabel `product_variants` dipasangi integritas data langsung di level database:
 
 ```sql
 ALTER TABLE product_variants ADD CONSTRAINT check_stock_non_negative CHECK (stock >= 0);
 ```
-Jika ada bug kodingan atau query liar yang mencoba membuat stok di bawah 0, PostgreSQL langsung menolak eksekusi tersebut di level basis data.
+Jika ada perintah SQL apa pun yang mencoba membuat kolom `stock` bernilai negatif (`< 0`), PostgreSQL **secara native langsung menolak eksekusi tersebut** dengan error `check_stock_non_negative constraint violation`.
+
+---
+
+## 3. Rangkuman Perbedaan & Solusi
+
+| Pembeda | Deadlock | Race Condition |
+|:---|:---|:---|
+| **Inti Masalah** | Saling sandera kunci baris data $\to$ **Transaksi macet & dibatalkan paksa**. | Balapan mengubah data yang sama $\to$ **Data tidak konsisten (stok minus)**. |
+| **Pemicu** | Mengubah banyak baris data dengan **urutan terbalik**. | Membaca data ke memori aplikasi lalu menimpa tanpa verifikasi atomik saat lock. |
+| **Solusi di Project Ini** | **Consistent Lock Ordering:** Item keranjang belanja selalu diurutkan (`.sort((a,b) => a.id - b.id)`) sebelum transaksi. | **3 Lapis Pertahanan:**<br>1. Atomic `decrement`<br>2. Conditional update `WHERE stock >= quantity`<br>3. PostgreSQL `CHECK (stock >= 0)` constraint. |
