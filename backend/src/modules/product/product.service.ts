@@ -33,7 +33,10 @@ export class ProductServices {
     cursor?: number,
     search?: string
   ): Promise<{ products: ProductResponse[]; nextCursor: number | null }> {
-    return await ProductModel.getProductsByCursor(limit, cursor, search);
+    if (search && search.trim().length > 0) {
+      return await ProductModel.searchProductsFuzzy(search.trim(), limit, cursor);
+    }
+    return await ProductModel.getProductsByCursor(limit, cursor);
   }
 
   static async getProductDetail(productId: number | string): Promise<ProductResponse> {

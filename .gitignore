@@ -44,3 +44,9 @@ Thumbs.db
 # Testing
 coverage/
 */coverage/
+
+# Database Backups & Dumps
+backups/
+*/backups/
+*.dump
+

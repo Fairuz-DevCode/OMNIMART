@@ -120,6 +120,56 @@ export class ProductModel {
     };
   }
 
+  /**
+   * Full-Text Search (FTS) dengan toleransi salah ketik (Typo-Tolerance):
+   * 1. Coba pencarian berbasis GIN Trigram Index (ILIKE)
+   * 2. Jika tidak ada hasil (karena typo), fallback ke Trigram word_similarity threshold
+   */
+  static async searchProductsFuzzy(
+    query: string,
+    limit: number = 10,
+    cursor?: number
+  ): Promise<{ products: ProductResponse[]; nextCursor: number | null }> {
+    const cleanQuery = query.trim();
+
+    // 1. Eksekusi pencarian exact / partial match via GIN Trigram Index
+    const exactMatches = await this.getProductsByCursor(limit, cursor, cleanQuery);
+    if (exactMatches.products.length > 0) {
+      return exactMatches;
+    }
+
+    // 2. Fallback Typo-Tolerance: Hitung kemiripan trigram menggunakan word_similarity
+    const cursorFilter = cursor ? Number(cursor) : 0;
+    const fuzzyRows = await prisma.$queryRaw<any[]>`
+      SELECT 
+        p.id, 
+        p.category_id, 
+        p.name, 
+        p.slug, 
+        p.price, 
+        p.img_url, 
+        p.created_at,
+        word_similarity(${cleanQuery}, p.name) AS score
+      FROM products p
+      WHERE p.deleted_at IS NULL
+        AND (${cleanQuery} <% p.name OR word_similarity(${cleanQuery}, p.name) > 0.3)
+        AND p.id > ${cursorFilter}
+      ORDER BY score DESC, p.id ASC
+      LIMIT ${limit + 1}
+    `;
+
+    let nextCursor: number | null = null;
+    if (fuzzyRows.length > limit) {
+      fuzzyRows.pop();
+      nextCursor = fuzzyRows[fuzzyRows.length - 1].id;
+    }
+
+    return {
+      products: fuzzyRows as any,
+      nextCursor,
+    };
+  }
+
   static async getProductById(id: number | string): Promise<ProductResponse | null> {
     const p = await prisma.products.findFirst({
       where: { id: Number(id), deleted_at: null },

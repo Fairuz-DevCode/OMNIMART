@@ -23,6 +23,12 @@ Setiap dokumen membedah **Masalah**, **Solusi Teoretis / Best Practice**, serta 
 | 11 | **Database Deadlock Storm** | [11-database-deadlock-storm.md](./11-database-deadlock-storm.md) | Exponential backoff + random jitter retry helper untuk meredam thundering herd. |
 | 12 | **Database ACID Compliance** | [12-database-acid-compliance.md](./12-database-acid-compliance.md) | Audit 4 pilar ACID (Atomicity, Consistency, Isolation, Durability) di codebase. |
 | 13 | **Soft Delete vs Hard Delete** | [13-soft-delete-vs-hard-delete.md](./13-soft-delete-vs-hard-delete.md) | Soft delete produk & proteksi varian historis vs hard delete cart & token sementara. |
+| 14 | **Pagination Optimization** | [14-pagination-optimization.md](./14-pagination-optimization.md) | Hybrid pagination (Keyset Cursor untuk infinite scroll vs Offset untuk lompat halaman admin). |
+| 15 | **Database Replication & Lag** | [15-database-replication-and-lag.md](./15-database-replication-and-lag.md) | Physical Streaming Replication, bahaya Replication Lag pada stok & mitigasi data-sensitivity splitting. |
+| 16 | **Database Sharding** | [16-database-sharding.md](./16-database-sharding.md) | Evaluasi arsitektur sharding, alasan penundaan (prinsip "Don't Shard Until You Must"), & roadmap Citus masa depan. |
+| 17 | **Full-Text Search Engine** | [17-full-text-search-engine.md](./17-full-text-search-engine.md) | Mesin FTS Inverted Index, GIN Trigram (`pg_trgm`), perbandingan vs Elasticsearch, & fitur Typo-Tolerance. |
+| 18 | **Database Constraints** | [18-database-constraints.md](./18-database-constraints.md) | 6 pilar integritas data, benteng pertahanan terakhir dari race condition, & implementasi CHECK constraints. |
+| 19 | **Database Backup & PITR** | [19-database-backup-and-pitr.md](./19-database-backup-and-pitr.md) | Point-in-Time Recovery, pemulihan data detik per detik via WAL LSN & Named Restore Point. |
 
 ---
 
