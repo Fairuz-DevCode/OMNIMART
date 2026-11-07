@@ -32,11 +32,20 @@ router.delete(
   ProductController.deleteProduct
 );
 
-// Cache GET routes selama 5 menit (300 detik)
-router.get("/", cacheResponse(300, "products"), ProductController.getProduct);
-router.get("/:id", cacheResponse(300, "products"), ProductController.getProductDetail);
+// 1. Query variasi kecil (katalog default tanpa filter/search): Cache di Redis selama 10 menit (600s)
+//    Query variasi besar (search teks bebas, cursor pagination tak terbatas): Skip cache, arahkan ke DB Read Replica
+router.get(
+  "/",
+  cacheResponse(600, "products", {
+    shouldSkip: (req) => Boolean(req.query.search || req.query.cursor),
+  }),
+  ProductController.getProduct
+);
+
+// 2. Detail produk & slug path (variasi kecil, dibatasi oleh jumlah produk): Cache di Redis selama 10 menit (600s)
+router.get("/:id", cacheResponse(600, "products"), ProductController.getProductDetail);
 
 // Dynamic Catch-All Route for /categories/[category-slug] and /categories/[category-slug]/[product-slug]
-router.get("/*slugPath", cacheResponse(300, "products"), ProductController.getBySlugPath);
+router.get("/*slugPath", cacheResponse(600, "products"), ProductController.getBySlugPath);
 
 export default router;

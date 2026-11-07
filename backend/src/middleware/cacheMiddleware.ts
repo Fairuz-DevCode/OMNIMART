@@ -6,14 +6,23 @@ interface CachePayload {
   contentType?: string;
 }
 
+export interface CacheResponseOptions {
+  shouldSkip?: (req: Request) => boolean;
+}
+
 /**
  * Middleware untuk meng-cache response GET request menggunakan Redis.
  * @param ttlSeconds Durasi cache dalam detik (default 300 detik / 5 menit)
  * @param prefix Prefix kunci cache untuk mempermudah invalidasi
+ * @param options Opsi tambahan seperti filter shouldSkip untuk query dengan variasi tinggi
  */
-export const cacheResponse = (ttlSeconds: number = 300, prefix: string = "cache") => {
+export const cacheResponse = (
+  ttlSeconds: number = 300,
+  prefix: string = "cache",
+  options?: CacheResponseOptions
+) => {
   return async (req: Request, res: Response, next: NextFunction) => {
-    if (req.method !== "GET") {
+    if (req.method !== "GET" || (options?.shouldSkip && options.shouldSkip(req))) {
       return next();
     }
 

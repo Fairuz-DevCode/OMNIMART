@@ -25,6 +25,7 @@
   "type": "module",
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "@prisma/extension-read-replicas": "^0.4.1",
     "@types/hpp": "^0.2.7",
     "@types/qrcode": "^1.5.6",
     "bcryptjs": "^3.0.3",

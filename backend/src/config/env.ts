@@ -19,6 +19,7 @@ const envSchema = z.object({
   DB_USER: z.string().min(1, "DB_USER is required"),
   DB_PASSWORD: z.string().default(""),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required for Prisma"),
+  DATABASE_REPLICA_URL: z.string().optional(),
 
   // Redis configuration
   REDIS_HOST: z.string().default("127.0.0.1"),
