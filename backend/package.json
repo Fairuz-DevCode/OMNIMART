@@ -12,8 +12,12 @@
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/integration --detectOpenHandles",
     "db:migrate": "prisma migrate deploy",
     "db:backup": "tsx scripts/backup.ts",
-    "seed:admin": "tsx src/seed/adminSeeder.ts",
-    "seed": "tsx src/seed/databaseSeeder.ts"
+    "db:reindex": "tsx scripts/reindex.ts",
+    "seed": "tsx src/seed/index.ts",
+    "seed:all": "tsx src/seed/index.ts",
+    "seed:categories": "tsx src/seed/categorySeeder.ts",
+    "seed:users": "tsx src/seed/userSeeder.ts",
+    "seed:products": "tsx src/seed/productSeeder.ts"
   },
   "keywords": [],
   "author": "",
