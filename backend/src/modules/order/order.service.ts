@@ -6,6 +6,7 @@ import { CartModel } from "../cart/cart.model.js";
 import { ShippingModel } from "../shipping/shipping.model.js";
 import { CreateOrderDTO, OrderResponse } from "./order.types.js";
 import { AppError } from "../../utils/appError.js";
+import { executeWithRetry } from "../../utils/transactionRetry.js";
 
 const generateOrderNumber = (): string => {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -30,7 +31,8 @@ export class OrderServices {
       throw new AppError("Cart is empty or stock is insufficient", 400);
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    // Transaksi checkout dilindungi oleh executeWithRetry untuk meredam Deadlock Storm
+    const result = await executeWithRetry(prisma, async (tx) => {
       // Sort variant items to prevent deadlocks when multiple transactions lock rows concurrently
       const sortedCartItems = [...cartItems].sort(
         (a, b) => a.product_variant_id - b.product_variant_id
@@ -42,10 +44,10 @@ export class OrderServices {
         where: { id: { in: variantIds } },
         select: { id: true, product_id: true, size: true, stock: true },
       });
-      const variantMap = new Map(variants.map((v) => [v.id, v]));
+      const variantMap = new Map<number, any>(variants.map((v: any) => [v.id, v]));
 
       for (const item of sortedCartItems) {
-        const variant = variantMap.get(item.product_variant_id);
+        const variant: any = variantMap.get(item.product_variant_id);
         if (!variant || variant.stock < item.quantity) {
           throw new AppError("Cart is empty or stock is insufficient", 400);
         }
