@@ -22,6 +22,7 @@ Setiap dokumen membedah **Masalah**, **Solusi Teoretis / Best Practice**, serta 
 | 10 | **Deadlock & Race Condition** | [10-deadlock-and-race-condition.md](./10-deadlock-and-race-condition.md) | Consistent lock ordering (sort by ID), conditional atomic decrement & DB check constraint. |
 | 11 | **Database Deadlock Storm** | [11-database-deadlock-storm.md](./11-database-deadlock-storm.md) | Exponential backoff + random jitter retry helper untuk meredam thundering herd. |
 | 12 | **Database ACID Compliance** | [12-database-acid-compliance.md](./12-database-acid-compliance.md) | Audit 4 pilar ACID (Atomicity, Consistency, Isolation, Durability) di codebase. |
+| 13 | **Soft Delete vs Hard Delete** | [13-soft-delete-vs-hard-delete.md](./13-soft-delete-vs-hard-delete.md) | Soft delete produk & proteksi varian historis vs hard delete cart & token sementara. |
 
 ---
 

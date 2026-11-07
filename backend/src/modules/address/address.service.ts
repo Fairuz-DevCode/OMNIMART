@@ -1,3 +1,4 @@
+import prisma from "../../config/prisma.js";
 import { AddressModel } from "./address.model.js";
 import { AddressDTO, AddressResponse, UpdateAddressDTO } from "./address.types.js";
 import { AppError } from "../../utils/appError.js";
@@ -30,6 +31,16 @@ export class AddressServices {
     const existingAddress = await AddressModel.getAddressByIdAndUserId(addressId, userId);
     if (!existingAddress) {
       throw new AppError("Address not found", 404);
+    }
+
+    // Proteksi Integritas: Jangan hapus alamat fisik jika sudah pernah digunakan dalam pesanan
+    const orderUsingAddress = await prisma.orders.findFirst({
+      where: { address_id: Number(addressId) },
+      select: { id: true },
+    });
+
+    if (orderUsingAddress) {
+      throw new AppError("Alamat tidak dapat dihapus karena terikat dengan riwayat pesanan yang sudah ada.", 400);
     }
 
     await AddressModel.deleteAddress(addressId, userId);

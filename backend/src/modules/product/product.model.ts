@@ -121,8 +121,8 @@ export class ProductModel {
   }
 
   static async getProductById(id: number | string): Promise<ProductResponse | null> {
-    const p = await prisma.products.findUnique({
-      where: { id: Number(id) },
+    const p = await prisma.products.findFirst({
+      where: { id: Number(id), deleted_at: null },
       include: {
         product_variants: {
           select: { id: true, size: true, stock: true },
@@ -218,8 +218,8 @@ export class ProductModel {
   }
 
   static async getProductBySlug(slug: string): Promise<ProductResponse | null> {
-    const p = await prisma.products.findUnique({
-      where: { slug },
+    const p = await prisma.products.findFirst({
+      where: { slug, deleted_at: null },
       include: {
         product_variants: {
           select: { id: true, size: true, stock: true },

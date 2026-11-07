@@ -77,17 +77,14 @@ export class ProductServices {
   }
 
   static async deleteProduct(productId: number | string): Promise<boolean> {
-    return await prisma.$transaction(async (tx) => {
-      await ProductModel.deleteVariants(tx, productId);
+    // Soft Delete murni: menandai produk dengan deleted_at tanpa merusak integritas varian fisik
+    const deletedProduct = await ProductModel.deleteProduct(null, productId);
 
-      const deletedProduct = await ProductModel.deleteProduct(tx, productId);
+    if (!deletedProduct) {
+      throw new AppError("Product not found", 404);
+    }
 
-      if (!deletedProduct) {
-        throw new AppError("Product not found", 404);
-      }
-
-      return true;
-    });
+    return true;
   }
 
   static async slugHandler(slugPathArray: string[]): Promise<any> {
