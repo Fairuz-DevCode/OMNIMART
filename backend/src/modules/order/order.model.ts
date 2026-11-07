@@ -1,5 +1,6 @@
 import prisma from "../../config/prisma.js";
 import { status as PrismaOrderStatus } from "@prisma/client";
+import { AppError } from "../../utils/appError.js";
 
 export class OrderModel {
   static async createOrder(
@@ -52,12 +53,21 @@ export class OrderModel {
 
   static async deductVariantStock(tx: any, variantId: number, quantity: number): Promise<any> {
     const db = tx || prisma;
-    return await db.product_variants.update({
-      where: { id: Number(variantId) },
+    const result = await db.product_variants.updateMany({
+      where: {
+        id: Number(variantId),
+        stock: { gte: quantity }, // Proteksi Race Condition: pastikan stok >= quantity saat lock diperoleh
+      },
       data: {
         stock: { decrement: quantity },
       },
     });
+
+    if (result.count === 0) {
+      throw new AppError("Stock is insufficient or already depleted by another transaction", 400);
+    }
+
+    return result;
   }
 
   static async restoreStockForOrder(tx: any, orderId: number): Promise<void> {

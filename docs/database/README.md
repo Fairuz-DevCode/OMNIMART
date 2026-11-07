@@ -19,6 +19,7 @@ Setiap dokumen membedah **Masalah**, **Solusi Teoretis / Best Practice**, serta 
 | 07 | **Database Index Fragmentation** | [07-database-index-fragmentation.md](./07-database-index-fragmentation.md) | Maintenance online `REINDEX CONCURRENTLY` tanpa downtime via script TypeScript. |
 | 08 | **Leaked Database Connection** | [08-leaked-database-connection.md](./08-leaked-database-connection.md) | Prisma global singleton, block finally release, dan OS Graceful Shutdown. |
 | 09 | **Connection Pool Exhaustion & PgBouncer** | [09-database-connection-pool-exhaustion.md](./09-database-connection-pool-exhaustion.md) | PgBouncer port 6432, Prisma dual URL (`url` & `directUrl`), Redis caching & Read Replicas. |
+| 10 | **Deadlock & Race Condition** | [10-deadlock-and-race-condition.md](./10-deadlock-and-race-condition.md) | Consistent lock ordering (sort by ID), conditional atomic decrement & DB check constraint. |
 
 ---
 
