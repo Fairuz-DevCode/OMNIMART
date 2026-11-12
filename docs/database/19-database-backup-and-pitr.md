@@ -162,3 +162,16 @@ Jika terjadi insiden di server produksi dan Anda ingin memulihkan database ke wa
 1. **Jadikan PITR Standar Operasional di Produksi:** Jangan pernah mengandalkan snapshot harian saja untuk data transaksi keuangan e-commerce.
 2. **Pisahkan Lokasi Penyimpanan WAL dan Database:** Simpan arsip WAL di *cloud object storage* (S3/GCS) yang berbeda server fisik dari database utama.
 3. **Uji Coba Pemulihan Secara Berkala (*Disaster Recovery Drill*):** Backup yang tidak pernah diuji restore adalah backup yang belum terbukti ada. Lakukan simulasi pemulihan data minimal sebulan sekali.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Script `backup.ts` otomatis membuat dump terkompresi Gzip, mencatat Named Restore Point (`pg_create_restore_point`), dan arsitektur Point-in-Time Recovery (PITR) siap digunakan untuk pemulihan detik-per-detik.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Automated Disaster Recovery Testing Pipeline (Auto-Restore Drill):**  
+   Pepatah terkenal DevOps mengatakan: *"You don't have a backup until you've successfully restored it"*. Saat ini verifikasi restore masih bersifat manual. Batasan mentoknya adalah membuat automated background job (misal setiap hari Minggu) yang otomatis memutar file backup ke dalam container Docker ephemeral terpisah, menjalankan query verifikasi integritas tabel, dan melaporkan status hijau (*healthy restore verification*) ke monitoring dashboard.
+2. **Offsite Immutable Cloud Archival (Ransomware Proof WORM):**  
+   File backup saat ini masih tersimpan di disk lokal server. Batasan mentoknya adalah mengunggah file `.dump.gz` dan segmen WAL ke AWS S3 / Cloudflare R2 dengan mengaktifkan fitur **S3 Object Lock (Compliance Mode)**, sehingga file backup secara kriptografis tidak dapat dimodifikasi atau dihapus oleh siapapun (termasuk penyerang bermodal ransomware) selama periode retensi (misal 90 hari).

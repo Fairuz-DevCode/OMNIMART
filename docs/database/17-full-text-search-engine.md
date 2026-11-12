@@ -185,3 +185,21 @@ Sistem telah diuji secara langsung terhadap basis data riil `db_nexa`:
 1. **Gunakan Inverted Index (GIN) untuk Pencarian Teks Bebas:** Menggantikan sequential scan yang boros CPU dengan index traversal instan.
 2. **Pasang Threshold Kemiripan yang Ideal:** Ambang batas `word_similarity > 0.3` adalah standar emas untuk menyeimbangkan antara toleransi salah ketik dan relevansi kata.
 3. **Prioritaskan Native FTS PostgreSQL Terlebih Dahulu:** Hindari kerumitan operasional dan biaya sewa server Elasticsearch jika volume data masih berada di bawah jutaan baris.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Mesin pencari GIN Trigram (`pg_trgm`) telah aktif di PostgreSQL dengan toleransi salah ketik (*typo-tolerant fuzzy search*) pada ambang batas skor 0.3.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Synonym & Slang Mapping Dictionary (Kamus Istilah Streetwear):**  
+   Saat pembeli mengetik kata `"baju"` atau `"kaos"`, mesin belum mengasosiasikannya dengan produk yang berjudul `"T-Shirt"` atau `"Graphic Tee"`. Batasan mentok FTS adalah memasang *Custom PostgreSQL Thesaurus/Synonym Dictionary*:
+   ```text
+   baju kaos tee : t-shirt
+   sepatu : sneakers kicks
+   celana : cargo pants
+   ```
+2. **Sub-millisecond Search Autocomplete via Redis Sorted Sets (ZSET):**  
+   Pencarian saat ini mengeksekusi query database saat user menekan Enter. Batasan mentok untuk kotak pencarian modern (seperti Amazon/Tokopedia) adalah *Typeahead Autocomplete* berbasis Redis ZSET yang menyajikan 5 rekomendasi produk secara instan dalam **< 1ms** saat pengguna baru mengetik huruf ke-2.

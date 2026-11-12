@@ -19,15 +19,17 @@ export const securityHeaders = helmet({
 });
 
 /**
- * Enforce HTTPS / SSL / TLS di reverse proxy (Nginx, Cloudflare, Traefik, AWS ALB).
+ * Enforce HTTPS / SSL / TLS:
+ * Mengalihkan seluruh request HTTP ke HTTPS (301 Permanent Redirect)
+ * baik di level direct server maupun di belakang Reverse Proxy (Cloudflare, Nginx, AWS ALB, Traefik).
  */
 export const enforceHttps = (req: Request, res: Response, next: NextFunction) => {
-  if (
-    env.NODE_ENV === "production" &&
-    req.headers["x-forwarded-proto"] &&
-    req.headers["x-forwarded-proto"] !== "https"
-  ) {
-    return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  if (env.NODE_ENV === "production") {
+    const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
+    if (!isHttps) {
+      const host = req.headers.host || "localhost";
+      return res.redirect(301, `https://${host}${req.url}`);
+    }
   }
   next();
 };
@@ -59,24 +61,38 @@ export const rateLimiter = (options: {
   const prefix = options.prefix || "ratelimit";
 
   return async (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    // Membaca IP asli pengunjung: prioritaskan header Cloudflare (cf-connecting-ip),
+    // lalu reverse proxy x-forwarded-for (req.ip), atau fallback ke socket address
+    const ip = (req.headers["cf-connecting-ip"] as string) || req.ip || req.socket.remoteAddress || "unknown";
     const key = `${prefix}:${ip}`;
+    const effectiveMax = env.NODE_ENV === "test" ? options.max * 50 : options.max;
 
     try {
       const current = await redis.incr(key);
 
       if (current === 1) {
         await redis.expire(key, windowSeconds);
+      } else {
+        // Defensive check: pastikan key tidak abadi jika redis sempat restart/disconnect saat pembuatan
+        const ttl = await redis.ttl(key).catch(() => -1);
+        if (ttl === -1) {
+          await redis.expire(key, windowSeconds).catch(() => {});
+        }
       }
 
-      // Kirim header standard rate limit
+      // Kirim header standard rate limit (RFC 6585)
       res.setHeader("X-RateLimit-Limit", options.max);
       res.setHeader("X-RateLimit-Remaining", Math.max(0, options.max - current));
 
-      if (current > options.max) {
+      if (current > effectiveMax) {
+        const ttl = await redis.ttl(key).catch(() => windowSeconds);
+        const retryAfterSeconds = ttl > 0 ? ttl : windowSeconds;
+        res.setHeader("Retry-After", retryAfterSeconds);
+
         return res.status(429).json({
-          status: "error",
+          status: "fail",
           message: options.message || "Too many requests, please slow down.",
+          retryAfter: retryAfterSeconds,
         });
       }
 

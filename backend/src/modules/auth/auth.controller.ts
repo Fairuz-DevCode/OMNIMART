@@ -1,10 +1,11 @@
 import { Request, Response, NextFunction, CookieOptions } from "express";
 import { AuthService } from "./auth.service.js";
 import { AppError } from "../../utils/appError.js";
+import env from "../../config/env.js";
 
 const cookiesOptions: CookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
+  secure: env.NODE_ENV === "production",
   sameSite: "strict",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
@@ -31,19 +32,31 @@ export class AuthController {
 
   static async login(req: Request, res: Response, next: NextFunction) {
     try {
-      const { user, accessToken, refreshToken } = await AuthService.loginUser({
+      const result = await AuthService.loginUser({
         email: req.body.email,
         password: req.body.password,
       });
 
-      res.cookie("refreshToken", refreshToken, cookiesOptions);
+      if (result.mfaRequired) {
+        return res.status(200).json({
+          status: "2fa_required",
+          message: "Two-factor authentication code required",
+          payload: {
+            mfaRequired: true,
+            tempToken: result.tempToken,
+            user: result.user,
+          },
+        });
+      }
+
+      res.cookie("refreshToken", result.refreshToken, cookiesOptions);
 
       return res.status(200).json({
         status: "success",
         message: "Login successful",
         payload: {
-          user,
-          accessToken,
+          user: result.user,
+          accessToken: result.accessToken,
         },
       });
     } catch (error) {
@@ -63,7 +76,10 @@ export class AuthController {
         );
       }
 
-      const { accessToken } = await AuthService.refreshTokenServices(refreshToken);
+      const { accessToken, newRefreshToken } = await AuthService.refreshTokenServices(refreshToken);
+
+      // Refresh Token Rotation: Set cookie baru untuk refreshToken yang baru dirotasi
+      res.cookie("refreshToken", newRefreshToken, cookiesOptions);
 
       return res.json({
         status: "success",

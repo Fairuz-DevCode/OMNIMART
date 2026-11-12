@@ -67,3 +67,16 @@ await client.query("SELECT * FROM products WHERE id = $1", [productId]);
 
 ### D. Validasi Skema via Zod
 Setiap request payload diverifikasi oleh Zod validator di layer middleware sebelum diproses oleh controller/service, menyaring input berbahaya sejak awal.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Bebas dari string concatenation SQL murni. Prisma tagged template literals `$queryRaw` dan pg driver parameter arrays `$1, $2` aktif mengisolasi kode SQL dari data input pengguna.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Automated Static SQL Linter (Anti-Concatenation Git Hook):**  
+   Belum ada linter statis berbasis AST (seperti `eslint-plugin-sql`) di pre-commit hook yang secara otomatis menolak commit jika ada developer baru yang tidak sengaja menulis template string biasa (backtick tanpa `$queryRaw`) pada baris query SQL.
+2. **Database Least-Privilege Role Separation:**  
+   Saat ini aplikasi terkoneksi ke PostgreSQL menggunakan user dengan hak akses penuh (DB owner). Standar mentok pertahanan SQLi menerapkan *Principle of Least Privilege*: user runtime aplikasi (`nexa_runtime`) hanya diberi hak `SELECT, INSERT, UPDATE, DELETE`, dan diblokir secara keras dari izin DDL seperti `DROP TABLE`, `ALTER TABLE`, atau `TRUNCATE` sehingga jika ada query injeksi lolos, tabel tidak bisa dihapus.

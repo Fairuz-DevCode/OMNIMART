@@ -18,6 +18,7 @@ export interface UserResponse {
 
 export interface UserInDB extends UserResponse {
   password: string;
+  is_two_factor_enabled?: boolean;
 }
 
 export interface AuthTokens {
@@ -25,3 +26,14 @@ export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
+
+export type LoginResult =
+  | ({ mfaRequired: false } & AuthTokens)
+  | {
+      mfaRequired: true;
+      tempToken: string;
+      user: {
+        id: number;
+        email: string;
+      };
+    };

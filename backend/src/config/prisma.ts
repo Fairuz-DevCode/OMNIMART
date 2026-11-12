@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { readReplicas } from "@prisma/extension-read-replicas";
+import env from "./env.js";
 
 /**
  * Membuat Prisma Client instance dengan dukungan Read/Write Splitting.
@@ -10,12 +11,12 @@ import { readReplicas } from "@prisma/extension-read-replicas";
 function createPrismaClient(): PrismaClient {
   const baseClient = new PrismaClient({
     log:
-      process.env.NODE_ENV === "development"
+      env.NODE_ENV === "development"
         ? ["query", "error", "warn"]
         : ["error"],
   });
 
-  const replicaUrl = process.env.DATABASE_REPLICA_URL;
+  const replicaUrl = env.DATABASE_REPLICA_URL;
 
   if (replicaUrl) {
     const extendedClient = baseClient.$extends(
@@ -36,7 +37,7 @@ declare global {
 
 export const prisma = global.prisma || createPrismaClient();
 
-if (process.env.NODE_ENV !== "production") {
+if (env.NODE_ENV !== "production") {
   global.prisma = prisma;
 }
 

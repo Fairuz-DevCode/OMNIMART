@@ -1,15 +1,18 @@
-import dotenv from "dotenv";
-dotenv.config();
-
+import env from "./env.js";
 import pkg from "pg";
 const { Pool } = pkg;
 
+const isProduction = env.NODE_ENV === "production";
+const isRemoteDb = env.DB_HOST !== "localhost" && env.DB_HOST !== "127.0.0.1";
+const shouldUseSSL = env.DB_SSL ?? (isProduction && isRemoteDb);
+
 const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 5432,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: String(process.env.DB_PASSWORD ?? ""),
+  host: env.DB_HOST,
+  port: env.DB_PORT,
+  database: env.DB_NAME,
+  user: env.DB_USER,
+  password: env.DB_PASSWORD,
+  ssl: shouldUseSSL ? { rejectUnauthorized: false } : undefined,
   max: 20, // Batas maksimal koneksi pool untuk mencegah Database Connection Pool Exhaustion
   idleTimeoutMillis: 30000, // Tutup koneksi idle setelah 30 detik untuk mencegah leaked database connections
   connectionTimeoutMillis: 5000, // Gagal cepat dalam 5 detik jika pool habis (jangan menggantung)

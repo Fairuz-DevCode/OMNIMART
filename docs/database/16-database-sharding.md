@@ -121,3 +121,20 @@ Daripada menulis logika perutean sharding secara manual di Express.js (*Applicat
 | **Kebutuhan Sharding** | **Belum Perlu (Deferred)** | Diterapkan jika data > 1 TB atau volume transaksi > 10.000 TPS. |
 | **Arsitektur Aktif** | Single Primary + Read Replicas + PgBouncer + Redis. | Distributed PostgreSQL (Citus) + ClickHouse OLAP. |
 | **Fokus Optimasi Saat Ini** | Indeksasi presisi, pencegahan deadlock, soft delete murni, dan pagination hybrid. | Skalabilitas horizontal multi-server. |
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Keputusan arsitektur yang sangat matang (*Engineering Trade-off*): Menghindari kerumitan *Over-Engineering* sharding prematur dan memaksimalkan *Vertical Scaling*, Read Replicas, dan Redis Caching.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Application-Level Shard Routing Prototype (Consistent Hashing):**  
+   Jika di masa depan database mencapai 50 juta pesanan dan wajib di-shard, kode aplikasi belum memiliki abstraksi router database berbasis *Consistent Hashing*:
+   ```typescript
+   const shardId = hashMurmur3(userId) % TOTAL_SHARDS;
+   const dbClient = getShardConnection(shardId);
+   ```
+2. **Distributed PostgreSQL Extension (Citus Data Cloud Cluster):**  
+   Batasan mentok jika benar-benar harus melakukan sharding tanpa menulis ulang seluruh kueri join adalah mengadopsi extension **Citus Data**, di mana tabel `orders` didistribusikan secara transparan menggunakan perintah `create_distributed_table('orders', 'user_id')`.

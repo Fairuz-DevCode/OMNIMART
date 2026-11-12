@@ -248,3 +248,16 @@ static async deleteVariants(tx: any, productId: number | string): Promise<void> 
 2. **Pasang Indeks pada `deleted_at`:** Selalu sertakan `@@index([deleted_at])` atau indeks komposit `@@index([category_id, deleted_at])` agar filter `WHERE deleted_at IS NULL` tetap berkecepatan B-Tree instan.
 3. **Penyaringan Konsisten (Filter `deleted_at IS NULL`):** Frontend dan API hanya perlu memeriksa apakah `deleted_at` bernilai `null` untuk menampilkannya ke layar.
 4. **Hard Delete Hanya untuk Data Sementara:** Terapkan pembersihan fisik hanya untuk keranjang belanja (`cart_items`) dan token otentikasi kadaluwarsa (`refresh_tokens`).
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Produk, varian, kategori, dan alamat menggunakan *Pure Soft Delete* (`deleted_at DateTime?`) berindeks B-Tree, melindungi integritas relasi pesanan masa lalu dari *Foreign Key Cascade Delete*.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Prisma Client Extension for Transparent Soft Delete (`$extends`):**  
+   Saat ini filter `deleted_at: null` ditulis secara manual di setiap method query model. Batasan mentoknya adalah mengonfigurasi *Prisma Client Extension* yang secara otomatis mencegat dan menyuntikkan filter `where: { deleted_at: null }` ke seluruh kueri pembacaan produk secara transparan (*Zero-Boilerplate Soft Delete*), serta mengubah `prisma.products.delete()` menjadi mutasi `update({ data: { deleted_at: new Date() } })`.
+2. **Cold Table Partitioning / Archival Worker (> 2 Tahun):**  
+   Data yang di-soft delete bertahun-tahun lalu tetap memakan kapasitas tabel utama. Batasan mentok DBA adalah memindahkan record dengan `deleted_at < NOW() - INTERVAL '2 years'` ke tabel arsip dingin terpisah (`products_history_archive`) agar ukuran tabel operasional utama tetap ramping.

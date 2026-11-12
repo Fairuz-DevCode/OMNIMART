@@ -141,3 +141,24 @@ try {
    Pasang selalu `CHECK (col >= 0)` untuk harga, ongkir, total belanja, dan stok.
 3. **Gunakan Nama Constraint yang Deskriptif:**
    Gunakan pola penamaan `check_<nama_tabel>_<nama_kolom>_<kondisi>` (misal: `check_stock_non_negative`) agar saat terjadi error di log sistem, akar masalah langsung teridentifikasi dalam 1 detik.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Integritas data terlindungi oleh 6 pilar database constraint: Primary Key, Foreign Key with RESTRICT, Unique index, NOT NULL, CHECK constraints non-negatif (`stock >= 0`, `price >= 0`), dan Enum type-safety.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **PostgreSQL Custom Domain Types (DRY Constraint Architecture):**  
+   Saat ini constraint `CHECK (col >= 0)` didefinisikan satu per satu di tabel produk, varian, dan order. Batasan mentoknya adalah membuat tipe data domain PostgreSQL terpusat:
+   ```sql
+   CREATE DOMAIN positive_money AS integer CHECK (VALUE >= 0);
+   CREATE DOMAIN email_address AS varchar(255) CHECK (VALUE ~* '^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$');
+   ```
+   sehingga setiap kolom harga dan email di seluruh database secara otomatis mewarisi aturan validasi tanpa duplikasi definisi DDL.
+2. **Exclusion Constraints for Overlapping Time/Resource Reservations:**  
+   Jika di masa depan toko membuka fitur booking jadwal fitting pakaian offline di butik, CHECK constraint biasa tidak mampu mencegah tabrakan jam janji temu (*overlapping schedule*). Batasan mentoknya adalah menerapkan *Exclusion Constraint* via ekstensi `btree_gist`:
+   ```sql
+   ALTER TABLE fitting_bookings ADD CONSTRAINT no_overlapping_slots EXCLUDE USING gist (room_id WITH =, booking_time WITH &&);
+   ```

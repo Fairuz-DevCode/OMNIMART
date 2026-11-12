@@ -69,3 +69,16 @@ npm run seed:products
 # Seed seluruh database secara berurutan
 npm run seed
 ```
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Seeder modular, terisolasi, dan idempoten (bisa dijalankan berkali-kali tanpa duplikasi data error) dengan kompresi WebP gambar produk.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **High-Volume Load Testing Generator (100.000+ Records):**  
+   Saat ini seeder hanya menghasilkan 25 produk demo. Batasan mentok untuk pengujian performa query & index benchmark membutuhkan script seeder bervolume tinggi menggunakan `@faker-js/faker` dan PostgreSQL `COPY` command (bulk insert) untuk menyimulasikan 100.000 produk dan 500.000 pesanan dalam hitungan detik.
+2. **Mock Realistic Order & Payment Transactions:**  
+   Seeder saat ini hanya mengisi master data (produk, kategori, user), belum menyertakan data historis transaksi (pesanan, status settlement Midtrans, dan nomor resi pengiriman) yang diperlukan untuk pengujian grafik analitik penjualan dashboard admin.

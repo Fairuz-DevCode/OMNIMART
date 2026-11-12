@@ -81,3 +81,16 @@ model refresh_tokens {
 * `product_variants`: `@@index([product_id])` dan `@@index([product_id, size])`.
 * `cart_items`: `@@index([cart_id])`, `@@index([product_id])`, `@@index([product_variant_id])`.
 * `product_reviews`: `@@index([product_id, created_at(sort: Desc)])`.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Seluruh kolom kunci pencarian, foreign keys relasional, dan composite indexes (`user_id, created_at DESC`) sudah terindeks optimal untuk memangkas *sequential scan* menjadi *index scan*.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Partial / Filtered Indexes (Hemat RAM & Write I/O):**  
+   Saat ini indeks status order mengindeks seluruh 100% baris di tabel. Batasan mentoknya adalah *Partial Index* di PostgreSQL: `CREATE INDEX idx_orders_unpaid ON orders (created_at) WHERE status = 'PENDING_PAYMENT'`. Indeks ini hanya memakan 2% ukuran memori RAM dan mempercepat kueri pengecekan order aktif tanpa membebani penulisan histori pesanan selesai.
+2. **Unused Index Telemetry & Cleanup Audit:**  
+   Belum ada script monitoring berkala yang membaca view internal PostgreSQL `pg_stat_user_indexes` untuk mendeteksi indeks dengan nilai `idx_scan = 0` (indeks yang tidak pernah digunakan oleh query planner), sehingga indeks yang sia-sia dan memperlambat `INSERT/UPDATE` dapat dieliminasi secara sistematis.

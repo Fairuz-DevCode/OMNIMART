@@ -65,3 +65,16 @@ Untuk deployment otomatis tanpa prompt interaktif di container Docker / CI-CD:
 npm run db:migrate
 ```
 Perintah ini menjalankan `prisma migrate deploy` yang secara aman hanya mengeksekusi migrasi yang belum terpasang di database production.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Skema terpusat di `schema.prisma`, histori migrasi tersimpan di tabel `_prisma_migrations`, dan eksekusi non-interaktif `prisma migrate deploy` siap untuk CI/CD.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Zero-Downtime Migration Pattern (Expand & Contract):**  
+   Saat ini jika ada perubahan skema drastis (seperti rename kolom atau pemecahan tabel), migrasi standar akan mengunci tabel (*table lock*). Batasan mentok enterprise menerapkan pola 3 tahap: (1) Buat kolom baru berdampingan, (2) Tulis data ke kedua kolom (dual-write), (3) Migrasi pembacaan dan hapus kolom lama setelah deployment sukses tanpa downtime sedetik pun.
+2. **Automated Down Migration (Rollback Scripts):**  
+   Prisma secara desain tidak menyediakan mekanisme `prisma migrate down` otomatis. Batasan mentoknya adalah mendokumentasikan dan menyediakan script `rollback.sql` pendamping pada setiap folder migrasi untuk mitigasi insiden jika migrasi gagal di database production.

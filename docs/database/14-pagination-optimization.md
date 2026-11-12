@@ -290,3 +290,20 @@ JOIN (
 ) AS sub ON p.id = sub.id;
 ```
 Subquery hanya membaca indeks angka `id` di memory B-Tree, lalu melakukan *join* hanya untuk 10 baris terpilih, menghemat I/O disk hingga 90%.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Arsitektur hybrid pagination telah aktif: Keyset Cursor Pagination O(1) untuk infinite scroll mobile feed toko, dan Offset Pagination O(N) terbatas untuk navigasi tabel admin.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Opaque Base64 Encoded Cursors (Shopify / GitHub API Standard):**  
+   Saat ini cursor masih berupa integer ID telanjang (`cursor=45`). Batasan mentok API publik adalah membungkus nilai cursor menjadi string buram (*opaque string*) berbasis Base64:
+   ```json
+   { "nextCursor": "ZXlKaWQ0TXpjM09qRXhPVFUyTnpBMk13PT0=" }
+   ```
+   Hal ini mencegah pengguna menebak ID database riil dan memungkinkan penambahan multi-kolom sorting (misal sorting berdasarkan harga + ID) di dalam satu token cursor yang sama.
+2. **Bidirectional Cursor Pagination (`prevCursor` & `nextCursor`):**  
+   Implementasi cursor saat ini baru mendukung pagination satu arah ke depan (*forward scroll*). Batasan mentoknya adalah menyediakan navigasi mundur (*reverse paging*) dengan query dinamis `WHERE (price, id) < ($1, $2) ORDER BY price DESC, id DESC LIMIT 10`.

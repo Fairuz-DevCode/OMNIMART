@@ -1,12 +1,19 @@
 import app from "./app.js";
 import prisma from "./config/prisma.js";
 import redis from "./config/redis.js";
+import env from "./config/env.js";
 
-const PORT = process.env.PORT || 5000;
+const PORT = env.PORT;
 
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
+// Anti-Slowloris & Connection Starvation Hardening (TCP/HTTP Socket Level)
+// Nilai keepAliveTimeout diset 65s (lebih besar dari timeout standar 60s pada Nginx / AWS ALB)
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000; // Memutus koneksi jika pengiriman header sengaja diperlambat
+server.requestTimeout = 30000; // Batas mutlak pembacaan request di level TCP socket
 
 const gracefulShutdown = async (signal: string) => {
   console.log(`Received ${signal}. Shutting down server gracefully...`);

@@ -32,3 +32,30 @@ export const verifyRefreshToken = (token: string): any => {
     return null;
   }
 };
+
+/**
+ * Temporary Token berdurasi 5 menit untuk tantangan login 2FA (Two-Factor Challenge)
+ */
+export const generate2FATempToken = (userId: number): string => {
+  return jwt.sign(
+    { id: userId, is2FAChallenge: true },
+    env.JWT_ACCESS_SECRET,
+    { expiresIn: "5m", algorithm: "HS256" }
+  );
+};
+
+export const verify2FATempToken = (
+  token: string
+): { id: number; is2FAChallenge: boolean } | null => {
+  try {
+    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET, {
+      algorithms: ["HS256"],
+    }) as any;
+    if (decoded && decoded.is2FAChallenge) {
+      return decoded;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};

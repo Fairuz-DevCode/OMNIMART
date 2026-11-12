@@ -1,0 +1,16 @@
+{
+  "name": "nexa-streetwear-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Nexa Streetwear Enterprise Monorepo with Multi-Tier Testing",
+  "scripts": {
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "npm --prefix backend test",
+    "test:frontend": "npm --prefix frontend test",
+    "test:e2e": "playwright test",
+    "test:all": "npm run test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  }
+}

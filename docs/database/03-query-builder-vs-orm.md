@@ -61,3 +61,16 @@ const hierarchyResult = await prisma.$queryRaw<CategoryHierarchy[]>`
 `;
 ```
 Query ini menggabungkan fleksibilitas SQL Recursive Common Table Expression (CTE) dengan parameter sanitasi otomatis dan tipe data kembalian yang jelas.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Arsitektur hybrid seimbang: Operasi CRUD standar menggunakan type-safe Prisma ORM, sedangkan query relasional kompleks (seperti Recursive CTE hierarki kategori) menggunakan `$queryRaw` dengan template literals aman.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Query Observability & Slow Query Logging:**  
+   Belum ada middleware tracing (seperti OpenTelemetry atau Prisma `$on('query')`) yang otomatis merekam waktu eksekusi setiap query dan menyalakan alarm peringatan jika durasi query database melebihi **200ms** (*Slow Query Telemetry*).
+2. **Compile-Time Type-Checked Raw SQL:**  
+   Query `$queryRaw` saat ini masih menggunakan casting tipe manual (`as CategoryTreeResult[]`). Standar mentok industri menggunakan fitur Prisma TypedSQL atau integrasi type-safe query builder seperti Kysely, di mana sintaks SQL murni diverifikasi kebenarannya langsung pada saat kompilasi TypeScript (*Zero Runtime Type Casting*).

@@ -146,3 +146,16 @@ Misalkan terjadi lonjakan 5 transaksi checkout yang bertabrakan:
   * Transaksi 5 me-retry di milidetik ke **125ms** $\to$ Sukses!
 
 **Hasil:** Beban terdistribusi merata di garis waktu. Database PostgreSQL tetap stabil, antrean terurai rapi, dan sistem kebal dari *Deadlock Storm*.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Helper retry transaksi dengan *Exponential Backoff & Full Random Jitter* di [`transactionRetry.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/utils/transactionRetry.ts) aktif meredam badai tabrakan transaksi konkuren (kode error `40P01` dan `55P03`).
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Circuit Breaker Pattern (Pelindung DB saat Failover/Crash):**  
+   Saat database PostgreSQL mengalami kegagalan fatal (misal disk I/O 100% atau failover master), mekanisme retry yang membabi-buta justru memperparah kondisi server (*cascading failure*). Batasan mentoknya adalah memadukan retry helper dengan *Circuit Breaker* (seperti library Opossum) yang otomatis membuka sirkuit dan langsung mengembalikan error tanpa retry jika tingkat kegagalan transaksi melebihi **50%** dalam kurun waktu 10 detik.
+2. **Real-time Deadlock Storm Alerting Webhook:**  
+   Belum ada alarm peringatan real-time yang memicu notifikasi instan ke channel Slack/Telegram DevOps jika counter retry deadlock mendeteksi lebih dari 10 tabrakan dalam 1 menit.

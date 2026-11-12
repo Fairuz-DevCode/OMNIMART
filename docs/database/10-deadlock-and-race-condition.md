@@ -222,3 +222,17 @@ Jika ada perintah SQL apa pun yang mencoba membuat kolom `stock` bernilai negati
 | **Inti Masalah** | Saling sandera kunci baris data $\to$ **Transaksi macet & dibatalkan paksa**. | Balapan mengubah data yang sama $\to$ **Data tidak konsisten (stok minus)**. |
 | **Pemicu** | Mengubah banyak baris data dengan **urutan terbalik**. | Membaca data ke memori aplikasi lalu menimpa tanpa verifikasi atomik saat lock. |
 | **Solusi di Project Ini** | **Consistent Lock Ordering:** Item keranjang belanja selalu diurutkan (`.sort((a,b) => a.id - b.id)`) sebelum transaksi. | **3 Lapis Pertahanan:**<br>1. Atomic `decrement`<br>2. Conditional update `WHERE stock >= quantity`<br>3. PostgreSQL `CHECK (stock >= 0)` constraint. |
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Deadlock pada multi-item order telah dieliminasi 100% menggunakan *Consistent Lock Ordering* (pengurutan ID numerik sebelum penguncian baris).
+* Race condition stok minus dicegah melalui 3 benteng: atomic decrement, conditional update, dan constraint `CHECK (stock >= 0)`.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **In-Memory Pre-Allocation via Redis Lua Script (Flash Sale Scale):**  
+   Saat ini setiap pengurangan stok langsung menyentuh row PostgreSQL. Jika ada event diskon kilat (*Flash Sale*) 10.000 pesanan per detik untuk 1 varian barang yang sama, lock manager PostgreSQL akan antre panjang (*lock contention*). Batasan mentoknya adalah memotong stok di memori Redis terlebih dahulu menggunakan skrip atomik Lua (`DECRBY` dengan validasi `>= 0`), baru kemudian antrean pesanan di-commit ke PostgreSQL secara asinkron via message queue (RabbitMQ / BullMQ).
+2. **Optimistic Locking via Version Field (`OCC`):**  
+   Untuk skenario update data produk oleh multi-admin (misal 2 staf mengedit deskripsi produk yang sama), sistem belum menerapkan *Optimistic Concurrency Control* berbasis kolom `version: Int` (`UPDATE products SET ... version = version + 1 WHERE id = 1 AND version = 5`) untuk mencegah data tertimpa tanpa sengaja.

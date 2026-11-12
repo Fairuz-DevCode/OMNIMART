@@ -8,6 +8,7 @@ import path from "path";
 import hpp from "hpp";
 
 import env from "./config/env.js";
+import { AppError } from "./utils/appError.js";
 import { handleJsonSyntaxError } from "./middleware/jsonErrorMiddleware.js";
 import { errorHandler } from "./middleware/errorMiddleware.js";
 import {
@@ -18,7 +19,8 @@ import {
 } from "./middleware/securityMiddleware.js";
 import { requestTimeout } from "./middleware/timeoutMiddleware.js";
 import { csrfProtection } from "./middleware/csrfMiddleware.js";
-import { auditLogger } from "./middleware/auditMiddleware.js";
+import { auditLogger } from "./middleware/auditLogMiddleware.js";
+import { accessLogger } from "./middleware/accessLogMiddleware.js";
 
 import healthRoutes from "./modules/health/health.routes.js";
 import authRoutes from "./modules/auth/auth.routes.js";
@@ -38,6 +40,9 @@ const app = express();
 
 // Trust reverse proxy (untuk Cloudflare / Nginx / Load Balancer agar IP asli terbaca)
 app.set("trust proxy", 1);
+
+// HTTP Access Logging (Mencatat seluruh lalu lintas HTTP ke daily JSONL log stream)
+app.use(accessLogger());
 
 // 1. SSL/TLS & HTTP Security Headers
 app.use(enforceHttps);
@@ -63,16 +68,55 @@ const authLimiter = rateLimiter({
   prefix: "auth_ratelimit",
 });
 
-// 5. Hardened CORS Policy
-const allowedOrigins = [env.CLIENT_URL, "http://localhost:5173", "http://localhost:3000"].filter(Boolean);
+// 5. Hardened CORS Policy (Environment-Aware, Subdomain Support & 403 Forbidden Error Handling)
+const parseExtraOrigins = (originsStr?: string): string[] => {
+  if (!originsStr) return [];
+  return originsStr
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+};
+
+const extraOrigins = parseExtraOrigins(env.ALLOWED_ORIGINS);
+
+const allowedOrigins: (string | RegExp)[] =
+  env.NODE_ENV === "production"
+    ? [
+        env.CLIENT_URL,
+        ...extraOrigins,
+        // Mendukung subdomain resmi Nexa di production (misal https://admin.nexa.com, https://checkout.nexa.com)
+        /^https:\/\/([a-z0-9-]+\.)?nexa\.com$/,
+      ].filter(Boolean)
+    : [
+        env.CLIENT_URL,
+        ...extraOrigins,
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:4173",
+        "http://127.0.0.1:5173",
+      ].filter(Boolean);
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Izinkan request tanpa origin (misal mobile app, curl, server-to-server) atau yang ada di whitelist
-      if (!origin || allowedOrigins.includes(origin)) {
+      // 1. Izinkan request tanpa origin (misal mobile app, curl, server-to-server webhook Midtrans)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // 2. Evaluasi terhadap daftar putih (string exact match atau regex pattern)
+      const isAllowed = allowedOrigins.some((allowed) => {
+        if (allowed instanceof RegExp) {
+          return allowed.test(origin);
+        }
+        return allowed === origin;
+      });
+
+      if (isAllowed) {
         callback(null, true);
       } else {
-        callback(new Error("CORS policy violation: Origin not allowed"));
+        // 3. Tolak dengan 403 Forbidden yang terdefinisi rapi, bukan 500 error
+        callback(new AppError(`CORS policy violation: Origin '${origin}' is not allowed`, 403));
       }
     },
     credentials: true,
@@ -85,8 +129,14 @@ app.use(
       "x-csrf-token",
       "csrf-token",
     ],
-    exposedHeaders: ["X-Idempotent-Replay", "X-Cache", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
-    maxAge: 86400, // Preflight cache 24 jam
+    exposedHeaders: [
+      "X-Idempotent-Replay",
+      "X-Cache",
+      "X-RateLimit-Limit",
+      "X-RateLimit-Remaining",
+      "Retry-After",
+    ],
+    maxAge: 86400, // Preflight cache 24 jam (mengurangi beban request OPTIONS berulang)
   })
 );
 
@@ -116,12 +166,12 @@ app.use("/api/auth", authLimiter, advancedAuthRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/categories", categoryRoutes);
+app.use("/api", reviewRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/carts", cartRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/shippings", shippingRoutes);
-app.use("/api", reviewRoutes);
 app.use("/api/wishlist", wishlistRoutes);
 
 app.use(errorHandler);

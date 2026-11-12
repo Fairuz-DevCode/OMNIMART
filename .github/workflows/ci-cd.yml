@@ -1,0 +1,86 @@
+name: Nexa Streetwear CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-and-verify:
+    name: Lint, Test, & Security Audit
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: db_nexa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: TypeScript Strict Typecheck
+        working-directory: ./backend
+        run: npx tsc --noEmit
+
+      - name: Run Prisma Database Migration on Test DB
+        working-directory: ./backend
+        env:
+          DATABASE_URL: "postgresql://test_user:test_password@localhost:5432/db_nexa_test"
+        run: npx prisma migrate deploy
+
+      - name: Security Vulnerability Audit
+        working-directory: ./backend
+        run: npm audit --audit-level=high
+
+  deploy:
+    name: Build Docker & Deploy to Production
+    needs: test-and-verify
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Production Docker Image Test
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: nexa-backend:${{ github.sha }}

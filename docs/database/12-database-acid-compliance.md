@@ -174,3 +174,16 @@ Database memberi tahu *"Pembayaran Sukses"*, tetapi server tiba-tiba mati lampu 
 | **Consistency** | **100% Terpenuhi** | Prisma `@unique` & Foreign Key cascade + 5 Check Constraints native PostgreSQL (`stock >= 0`, `price >= 0`, `quantity > 0`, `total_amount >= 0`). |
 | **Isolation** | **100% Terpenuhi** | PostgreSQL `READ COMMITTED` + Row Exclusive Lock + `.sort()` anti-deadlock di [`order.service.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/order/order.service.ts#L35). |
 | **Durability** | **100% Terpenuhi** | PostgreSQL WAL engine + Docker Volume `nexa_pgdata` + Backup Snapshot harian di [`backend/scripts/backup.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/scripts/backup.ts). |
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* 4 Pilar ACID (Atomicity, Consistency, Isolation, Durability) terpenuhi 100% pada transaksi tunggal database PostgreSQL melalui transaksi Prisma, database constraint, dan Write-Ahead Logging (WAL).
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Serializable Isolation Level for Financial Settlements:**  
+   Saat ini transaksi menggunakan level isolasi bawaan PostgreSQL `READ COMMITTED`. Untuk kalkulasi audit keuangan tingkat perbankan (*ledger accounting*), batasan mentoknya adalah mengaplikasikan level `SERIALIZABLE` dengan penanganan error `40001 (serialization_failure)` secara otomatis.
+2. **Distributed Transaction Management (Saga Pattern):**  
+   Saat ini sistem bersifat monolitik (semua tabel berada dalam 1 database PostgreSQL). Jika arsitektur dipecah menjadi Microservices (Database Order terpisah dari Database Inventori dan Payment), ACID database tunggal tidak bisa menjangkau jaringan luar. Batasan mentoknya adalah menerapkan **Saga Orchestrator Pattern** dengan transaksi kompensasi otomatis (*Compensating Rollbacks*) jika salah satu service downstream gagal.

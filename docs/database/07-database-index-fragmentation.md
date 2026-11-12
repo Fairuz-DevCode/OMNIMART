@@ -92,3 +92,20 @@ Output eksekusi:
 ✨ Semua pohon indeks aktif kembali padat, rapi, dan cepat!
 =================================================
 ```
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Script `npm run db:reindex` berjalan secara *zero-downtime* menggunakan `REINDEX TABLE CONCURRENTLY` tanpa memblokir request transaksi pengguna yang sedang berlangsung.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Bloat-Threshold-Aware Reindexing (Smart Reindex):**  
+   Saat ini script me-reindex seluruh tabel secara serentak tanpa mengecek kondisi internal. Batasan mentoknya adalah menginspeksi extension PostgreSQL `pgstattuple` terlebih dahulu untuk mengukur persentase bloat (`free_percent`). Reindex hanya dijalankan pada tabel yang tingkat bloat-nya melebihi **25%**, sehingga menghemat I/O SSD server.
+2. **Aggressive Auto-Vacuum Tuning per High-Churn Table:**  
+   Tabel dengan churn tinggi (seperti `refresh_tokens` dan `cart_items`) sering memproduksi ribuan *dead tuples* per menit. Batasan mentok DBA adalah men-tuning autovacuum spesifik per-tabel di PostgreSQL:
+   ```sql
+   ALTER TABLE refresh_tokens SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_vacuum_cost_limit = 1000);
+   ```
+   sehingga pembersihan dead tuple berjalan lebih sering secara otomatis sebelum indeks sempat terfragmentasi.

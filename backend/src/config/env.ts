@@ -18,6 +18,10 @@ const envSchema = z.object({
   DB_NAME: z.string().min(1, "DB_NAME is required"),
   DB_USER: z.string().min(1, "DB_USER is required"),
   DB_PASSWORD: z.string().default(""),
+  DB_SSL: z
+    .string()
+    .optional()
+    .transform((val) => val === "true"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required for Prisma"),
   DATABASE_REPLICA_URL: z.string().optional(),
   DIRECT_URL: z.string().optional(),
@@ -27,12 +31,17 @@ const envSchema = z.object({
   REDIS_PORT: z.string().default("6379").transform((val) => parseInt(val, 10)),
   REDIS_PASSWORD: z.string().optional(),
 
-  // JWT Secrets (Wajib minimal 16 karakter untuk keamanan)
-  JWT_ACCESS_SECRET: z.string().min(8, "JWT_ACCESS_SECRET must be at least 8 characters long"),
-  JWT_REFRESH_SECRET: z.string().min(8, "JWT_REFRESH_SECRET must be at least 8 characters long"),
+  // JWT Secrets (Wajib minimal 32 karakter untuk memenuhi standar RFC 7518 HS256 & OWASP)
+  JWT_ACCESS_SECRET: z
+    .string()
+    .min(32, "JWT_ACCESS_SECRET must be at least 32 characters long for cryptographic security"),
+  JWT_REFRESH_SECRET: z
+    .string()
+    .min(32, "JWT_REFRESH_SECRET must be at least 32 characters long for cryptographic security"),
 
   // Client URL (CORS origin)
   CLIENT_URL: z.string().default("http://localhost:5173"),
+  ALLOWED_ORIGINS: z.string().optional(), // Daftar origin tambahan dipisah koma (contoh: "https://admin.nexa.com,https://staging.nexa.com")
 
   // Midtrans Payment Gateway
   MIDTRANS_SERVER_KEY: z.string().optional(),
@@ -44,6 +53,60 @@ const envSchema = z.object({
 
   // Google OAuth
   GOOGLE_CLIENT_ID: z.string().optional(),
+
+  // SMTP Email Configuration (untuk Email OTP & Security Alerts)
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.string().default("587").transform((val) => parseInt(val, 10)),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default("Nexa Streetwear <no-reply@nexa.com>"),
+}).superRefine((data, ctx) => {
+  // Aturan Pengetatan Khusus Lingkungan Produksi (Production-Specific Hardening)
+  if (data.NODE_ENV === "production") {
+    // 1. Password database dilarang kosong di production
+    if (!data.DB_PASSWORD || data.DB_PASSWORD.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["DB_PASSWORD"],
+        message: "DB_PASSWORD cannot be empty in production environment",
+      });
+    }
+
+    // 2. Client URL wajib menggunakan protokol HTTPS terenkripsi
+    if (!data.CLIENT_URL.startsWith("https://")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["CLIENT_URL"],
+        message: "CLIENT_URL must use HTTPS protocol in production",
+      });
+    }
+
+    // 3. Larangan menggunakan dummy / placeholder secret untuk JWT
+    const dummyKeywords = ["your_super_secret", "secret123", "placeholder", "admin123", "change_me"];
+    if (dummyKeywords.some((dummy) => data.JWT_ACCESS_SECRET.toLowerCase().includes(dummy))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["JWT_ACCESS_SECRET"],
+        message: "JWT_ACCESS_SECRET cannot use default placeholder in production",
+      });
+    }
+    if (dummyKeywords.some((dummy) => data.JWT_REFRESH_SECRET.toLowerCase().includes(dummy))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["JWT_REFRESH_SECRET"],
+        message: "JWT_REFRESH_SECRET cannot use default placeholder in production",
+      });
+    }
+
+    // 4. Verifikasi Midtrans production key jika mode production aktif
+    if (data.MIDTRANS_IS_PRODUCTION && data.MIDTRANS_SERVER_KEY?.startsWith("SB-")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["MIDTRANS_SERVER_KEY"],
+        message: "MIDTRANS_SERVER_KEY cannot use Sandbox key ('SB-') when MIDTRANS_IS_PRODUCTION is true",
+      });
+    }
+  }
 });
 
 const parseEnv = () => {

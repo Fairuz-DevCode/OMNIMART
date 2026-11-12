@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
+import env from "../config/env.js";
 
 const CSRF_COOKIE_NAME = "_csrf_token";
 const CSRF_HEADER_NAME = "x-csrf-token";
@@ -15,7 +16,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
     token = crypto.randomBytes(32).toString("hex");
     res.cookie(CSRF_COOKIE_NAME, token, {
       httpOnly: false, // Dibuat false agar JavaScript frontend bisa membaca dan mengirimnya di header x-csrf-token
-      secure: process.env.NODE_ENV === "production",
+      secure: env.NODE_ENV === "production",
       sameSite: "lax",
     });
   }
@@ -46,10 +47,17 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
     return next();
   }
 
-  // Jika request berbasis web cookie browser, wajib ada CSRF token yang cocok
-  if (!headerToken || headerToken !== token) {
+  // 4. Validasi kecocokan token secara timing-safe untuk menangkal side-channel timing attack
+  const isMatch = Boolean(
+    headerToken &&
+    token &&
+    headerToken.length === token.length &&
+    crypto.timingSafeEqual(Buffer.from(headerToken), Buffer.from(token))
+  );
+
+  if (!isMatch) {
     return res.status(403).json({
-      status: "error",
+      status: "fail",
       message: "CSRF token validation failed. Invalid or missing CSRF token.",
     });
   }

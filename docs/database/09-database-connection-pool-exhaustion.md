@@ -149,3 +149,16 @@ if (replicaUrl) {
 }
 ```
 * **Hasil:** Query pencarian rumit yang mem-bypass cache Redis akan dilayani oleh **Database Read Replica**. Database Primary (tempat kasir memproses pesanan belanja) terlindungi dari lonjakan beban koneksi.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Arsitektur dual-URL (PgBouncer port 6432 untuk transactional pooling + Direct URL port 5432 untuk migrasi DDL), isolasi batas pool (`connection_limit=20`), offload Redis, dan Read Replica sudah aktif.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Centralized Enterprise Connection Pooler (Multi-Pod Cluster):**  
+   Saat ini PgBouncer masih berjalan sebagai single instance lokal. Jika backend di-scale horizontal di Kubernetes menjadi 30 Pod (30 Pod x 20 koneksi = 600 koneksi), PostgreSQL tetap bisa kehabisan resource. Batasan mentoknya adalah mengadopsi Managed Connection Proxy (seperti AWS RDS Proxy atau HA-PgBouncer dengan Pgpool-II) yang menyerap ribuan koneksi stateless container ke dalam kolam statis 50 koneksi database riil.
+2. **Fast-Fail Application Circuit Breaker saat Pool Jenuh:**  
+   Jika antrean pool database penuh, Node.js masih menunggu hingga `connectionTimeoutMillis: 5000` habis. Batasan mentoknya adalah membaca metrik pool (`pool.waitingCount > 50`) dan langsung melempar respons `HTTP 503 Service Temporarily Unavailable` dalam 1 milidetik tanpa membiarkan worker thread tertahan.

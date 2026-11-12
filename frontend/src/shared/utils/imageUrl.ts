@@ -1,4 +1,4 @@
-const BACKEND_BASE = 'http://localhost:5000';
+const BACKEND_BASE = (import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL.replace(/\/api$/, "") : "") || "http://localhost:5000";
 
 export const getImageUrl = (img: any): string => {
   if (!img) return 'https://images.unsplash.com/photo-1552346154-21d32810aba3?w=500&q=80';

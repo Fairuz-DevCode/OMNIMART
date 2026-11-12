@@ -91,3 +91,19 @@ export const withTransaction = async <T>(callback: (client) => Promise<T>): Prom
   }
 };
 ```
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Bebas dari kebocoran koneksi berkat Prisma global singleton, blok `finally { client.release() }` di driver pg murni, dan Graceful Shutdown OS handler (`SIGTERM`/`SIGINT`).
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Transaction-Level Statement Timeout (`SET statement_timeout`):**  
+   Jika developer secara keliru memanggil API eksternal (seperti Midtrans/Email) di dalam blok transaksi dan API tersebut mengalami delay 60 detik, koneksi database akan tertahan dalam status `idle in transaction`. Batasan mentoknya adalah menyetel batas mutlak:
+   ```sql
+   SET LOCAL statement_timeout = '10000'; -- Putus paksa jika transaksi melebihi 10 detik
+   ```
+2. **Zombie Connection Reaper Worker:**  
+   Belum ada cron worker yang secara otomatis memindai `pg_stat_activity` untuk mencari koneksi dengan status `idle in transaction` berumur > 30 detik dan mengeksekusi `pg_terminate_backend(pid)` untuk menyelamatkan pool koneksi dari kehabisan resource.

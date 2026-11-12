@@ -187,3 +187,16 @@ FROM pg_stat_replication;
 2. **Pisahkan Jalur Berdasarkan Sensitivitas:** Biarkan pembeli yang sekadar melihat katalog membaca dari Read Replica.
 3. **Wajibkan Primary DB untuk Checkout:** Jangan pernah mempercayai pembacaan stok dari Read Replica pada alur keranjang belanja dan pembayaran.
 4. **Bungkus dalam Transaksi Atomik:** Memastikan pengecekan stok dan pengurangan stok berjalan di koneksi Primary yang sama.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Arsitektur pemisahan read-replica aktif melalui `@prisma/extension-read-replicas`. Kueri katalog publik dialihkan ke replica, sedangkan operasi checkout dan stok terkunci ketat di Primary.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Dynamic "Read-Your-Own-Writes" Consistency Window:**  
+   Saat pengguna mengubah nama profil atau alamat, lalu browser langsung melakukan redirect dan memanggil `GET /api/users/me`, jika pembacaan diarahkan ke replica yang sedang mengalami lag 300ms, pengguna akan melihat data lama (*stale data*) dan mengira update gagal. Batasan mentoknya adalah memasang penanda di cookie atau Redis session: jika user baru saja melakukan mutasi data, arahkan seluruh kueri pembacaan user tersebut ke **Primary selama 2–3 detik**, baru kemudian dilepas kembali ke replica.
+2. **Automated Lag Monitoring & Replica Draining:**  
+   Belum ada sensor background yang mengawasi fungsi PostgreSQL `pg_last_wal_replay_lsn()`. Batasan mentoknya adalah mengeluarkan replica dari pool traffic pembacaan (*auto-drain*) secara dinamis jika replication lag melebihi **5 detik**.

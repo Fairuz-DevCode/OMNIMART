@@ -68,3 +68,16 @@ Saat menangani URL slug bersarang seperti `/categories/shoes/sneakers/running`, 
 ### C. Recursive CTE untuk Breadcrumbs Kategori
 Diterapkan di [`backend/src/modules/product/product.service.ts`](file:///home/allrole/Documents/Learning/Streetwear%20|%20E-commerce%20Project/backend/src/modules/product/product.service.ts#L146-L157):
 Mengambil seluruh silsilah induk kategori dari level terbawah hingga *root* parent hanya dalam **1 kali roundtrip SQL** menggunakan `WITH RECURSIVE category_tree AS (...)`.
+
+---
+
+## Review Senior Backend: Analisis Gap & Batasan Mentok Implementasi
+
+### Status Saat Ini:
+* Bebas dari N+1 query problem pada alur checkout, cart loading, dan slug hierarchy resolution berkat batching `WHERE IN (...)`, pemetaan `Map` O(1), dan Recursive CTE.
+
+### Hal yang Belum Diimplementasikan (Menuju Standar Tertinggi / Batasan Mentok):
+1. **Automated Query Count Assertion di Integration Tests:**  
+   Saat ini belum ada guard otomatis di unit/integration test (seperti utilitas *Query Counter*) yang menguji bahwa memuat 50 produk tetap hanya menghasilkan tepat 2 roundtrip query ke database, mencegah developer baru secara tidak sengaja menambahkan pemanggilan ORM di dalam loop `forEach`/`map`.
+2. **DataLoader Implementation for Nested Entity Resolvers:**  
+   Jika aplikasi memperluas API untuk mendukung dynamic field expansion (misal: `GET /api/orders?include=items,user,shipping,payments`), batasan mentoknya adalah menerapkan pustaka `DataLoader` (Facebook pattern) yang menggabungkan dan melakukan de-duplikasi ID relasional secara asinkron dalam satu frame event loop Node.js.

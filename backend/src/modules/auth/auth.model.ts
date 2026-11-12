@@ -14,6 +14,7 @@ export class AuthModel {
         email: true,
         password: true,
         role: true,
+        is_two_factor_enabled: true,
       },
     });
     if (!user) return null;
@@ -95,6 +96,72 @@ export class AuthModel {
     });
   }
 
+  static async getCurrentToken(userId: number): Promise<string | null> {
+    try {
+      const cachedToken = await redis.get(`refresh_token:${userId}`);
+      if (cachedToken) return cachedToken;
+    } catch (err) {
+      console.warn("Redis getCurrentToken error:", err);
+    }
+    const row = await prisma.refresh_tokens.findFirst({
+      where: { user_id: userId, expires_at: { gt: new Date() } },
+      orderBy: { created_at: "desc" },
+    });
+    return row ? row.token : null;
+  }
+
+  static async rotateRefreshToken(userId: number, oldToken: string, newToken: string): Promise<void> {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    try {
+      // Grace period 15 detik untuk menangani request konkuren dari frontend
+      await redis.set(`previous_refresh_token:${userId}`, oldToken, "EX", 15);
+      await redis.set(`refresh_token:${userId}`, newToken, "EX", REFRESH_TOKEN_TTL);
+    } catch (err) {
+      console.warn("Redis rotateRefreshToken error, fallback to PostgreSQL:", err);
+    }
+
+    await prisma.refresh_tokens.deleteMany({
+      where: {
+        OR: [
+          { token: oldToken },
+          { user_id: userId },
+          { expires_at: { lt: new Date() } },
+        ],
+      },
+    });
+
+    await prisma.refresh_tokens.create({
+      data: {
+        user_id: userId,
+        token: newToken,
+        expires_at: expiresAt,
+      },
+    });
+  }
+
+  static async checkGracePeriod(userId: number, token: string): Promise<boolean> {
+    try {
+      const prevToken = await redis.get(`previous_refresh_token:${userId}`);
+      return prevToken === token;
+    } catch {
+      return false;
+    }
+  }
+
+  static async revokeAllUserTokens(userId: number): Promise<void> {
+    try {
+      await redis.del(`refresh_token:${userId}`);
+      await redis.del(`previous_refresh_token:${userId}`);
+    } catch (err) {
+      console.warn("Redis revokeAllUserTokens error:", err);
+    }
+
+    await prisma.refresh_tokens.deleteMany({
+      where: { user_id: userId },
+    });
+  }
+
   static async deleteRefreshToken(token: string): Promise<any> {
     try {
       // Hapus token di database PostgreSQL via Prisma & invalidate di Redis
@@ -106,6 +173,7 @@ export class AuthModel {
           where: { id: existing.id },
         });
         await redis.del(`refresh_token:${existing.user_id}`);
+        await redis.del(`previous_refresh_token:${existing.user_id}`);
         return existing;
       }
       return null;

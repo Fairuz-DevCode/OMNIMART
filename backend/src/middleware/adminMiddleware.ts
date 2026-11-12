@@ -7,11 +7,22 @@ import prisma from "../config/prisma.js";
  */
 export const authorizeRoles = (...allowedRoles: string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    const userRole = (req as any).user?.role;
+    const user = (req as any).user;
 
+    // 1. Jika user belum terotentikasi (tidak ada token)
+    if (!user) {
+      return res.status(401).json({
+        status: "fail",
+        message: "Unauthorized: Authentication required before checking roles",
+      });
+    }
+
+    const userRole = user.role;
+
+    // 2. Jika role user tidak ada dalam daftar yang diizinkan
     if (!userRole || !allowedRoles.includes(userRole)) {
       return res.status(403).json({
-        status: "error",
+        status: "fail",
         message: `Forbidden: Access restricted to [${allowedRoles.join(", ")}] roles only.`,
       });
     }
@@ -37,7 +48,7 @@ export const checkOwnership = (
   return async (req: Request, res: Response, next: NextFunction) => {
     const user = (req as any).user;
     if (!user) {
-      return res.status(401).json({ message: "Authentication required" });
+      return res.status(401).json({ status: "fail", message: "Authentication required" });
     }
 
     // Role admin bebas mengakses data apapun
@@ -57,13 +68,13 @@ export const checkOwnership = (
       });
 
       if (!record) {
-        return res.status(404).json({ message: "Resource not found" });
+        return res.status(404).json({ status: "fail", message: "Resource not found" });
       }
 
       const resourceOwnerId = record[ownerColumn];
       if (resourceOwnerId !== user.id) {
         return res.status(403).json({
-          status: "error",
+          status: "fail",
           message: "Forbidden: You do not have permission to access or modify this resource.",
         });
       }

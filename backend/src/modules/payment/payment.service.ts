@@ -3,6 +3,7 @@ import { PaymentModel } from "./payment.model.js";
 import { OrderModel } from "../order/order.model.js";
 import { snap } from "../../config/midtrans.js";
 import prisma from "../../config/prisma.js";
+import env from "../../config/env.js";
 import { CreatePaymentDTO, PaymentResponse } from "./payment.types.js";
 import { AppError } from "../../utils/appError.js";
 
@@ -23,7 +24,7 @@ export class PaymentServices {
     }
 
     let paymentUrl = "";
-    const serverKey = process.env.MIDTRANS_SERVER_KEY;
+    const serverKey = env.MIDTRANS_SERVER_KEY;
 
     if (serverKey && serverKey !== "SB-Mid-server-placeholder") {
       try {
@@ -76,7 +77,7 @@ export class PaymentServices {
       throw new AppError("Invalid signature or payload", 400);
     }
 
-    const serverKey = process.env.MIDTRANS_SERVER_KEY;
+    const serverKey = env.MIDTRANS_SERVER_KEY;
     if (serverKey && serverKey !== "SB-Mid-server-placeholder" && signature_key && gross_amount && status_code) {
       const hash = crypto
         .createHash("sha512")
